@@ -1,0 +1,23 @@
+flowchart LR
+subgraph Bitbucket Account
+	pipeline
+end
+subgraph AWS Account
+	Lambda:injest
+	DynamoDB::dam-migration-tracker-personal
+	Lambda:process
+	SecretsManager
+	CloudWatch
+	IAM
+end
+subgraph CreativeDrive
+	CDRestAPI
+end
+subgraph Bynder
+	BYRestAPI
+end
+pipeline--run-migration-->Lambda:injest
+Lambda:injest--retrieveAssets-->CDRestAPI
+Lambda:injest--put-->DynamoDB::dam-migration-tracker-personal
+DynamoDB::dam-migration-tracker-personal--trigger-->Lambda:process
+Lambda:process--upload-->BYRestAPI

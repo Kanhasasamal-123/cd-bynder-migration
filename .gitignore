@@ -48,3 +48,50 @@ Thumbs.db
 *.mov
 *.wmv
 
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.js
+*.js.map
+!jest.config.js
+
+# TypeScript
+*.tsbuildinfo
+
+# Testing
+coverage/
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+
+# Logs
+*.log
+npm-debug.log*
+
+# Temporary files
+tmp/
+temp/
+
+# API Collections
+*.postman_collection.json
+
+.env

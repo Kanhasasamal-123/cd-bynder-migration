@@ -1,0 +1,58 @@
+{
+  "name": "creative-drive-bynder-migration",
+  "version": "1.0.0",
+  "description": "Serverless DAM migration service from CreativeDrive to Bynder",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint 'src/**/*.ts'",
+    "lint:fix": "eslint 'src/**/*.ts' --fix",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:integration": "dotenv -e .env.local -- jest src/lib/lib.test.ts",
+    "prepare": "husky install",
+    "format": "prettier --write 'src/**/*.ts'"
+  },
+  "keywords": [
+    "dam",
+    "migration",
+    "creativedrive",
+    "bynder",
+    "aws",
+    "lambda",
+    "terraform"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.454.0",
+    "@aws-sdk/client-s3": "^3.454.0",
+    "@aws-sdk/client-secrets-manager": "^3.454.0",
+    "@aws-sdk/lib-dynamodb": "^3.454.0",
+    "axios": "^1.6.2",
+    "form-data": "^4.0.4"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.130",
+    "@types/form-data": "^2.2.1",
+    "@types/jest": "^29.5.11",
+    "@types/node": "^20.10.5",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "dotenv": "^17.2.3",
+    "dotenv-cli": "^11.0.0",
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.0.1",
+    "husky": "^8.0.3",
+    "jest": "^29.7.0",
+    "prettier": "^3.1.1",
+    "ts-jest": "^29.1.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -1,0 +1,269 @@
+image: node:20
+
+definitions:
+  steps:
+    - step: &lint-build-test
+        name: Lint, Build, and Test
+        caches:
+          - node
+        script:
+          - npm ci
+          - npm run lint
+          - npm run build
+          - npm test
+
+    - step: &package-lambda
+        name: Package Lambda Functions
+        caches:
+          - node
+        script:
+          - npm ci
+          - npm run build
+          - cd dist
+          - zip -r ../lambda-deployment.zip .
+          - cd ..
+          - zip -r lambda-deployment.zip node_modules
+        artifacts:
+          - lambda-deployment.zip
+
+    - step: &deploy-cloudformation
+        name: Deploy CloudFormation Stack
+        deployment: migration
+        script:
+          # Install AWS CLI
+          - apt-get update && apt-get install -y awscli
+
+          # Configure AWS credentials
+          - export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+          - export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+          - export AWS_DEFAULT_REGION=${AWS_REGION:-us-east-1}
+
+          # Set environment variables
+          - export LAMBDA_BUCKET=${LAMBDA_BUCKET:-dam-migration-lambda-packages}
+          - export STACK_NAME=${STACK_NAME:-dam-migration-personal}
+
+          # Create Lambda package bucket if it doesn't exist
+          - |
+            if ! aws s3 ls "s3://$LAMBDA_BUCKET" 2>/dev/null; then
+              echo "Creating Lambda package bucket..."
+              aws s3 mb "s3://$LAMBDA_BUCKET" --region $AWS_DEFAULT_REGION
+              aws s3api put-bucket-versioning \
+                --bucket $LAMBDA_BUCKET \
+                --versioning-configuration Status=Enabled
+              aws s3api put-public-access-block \
+                --bucket $LAMBDA_BUCKET \
+                --public-access-block-configuration \
+                  BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+              echo "✓ Lambda package bucket created"
+            else
+              echo "✓ Lambda package bucket already exists"
+            fi
+
+          # Upload Lambda package to S3
+          - export TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          - export S3_KEY="lambda-deployment-${TIMESTAMP}.zip"
+          - aws s3 cp lambda-deployment.zip "s3://$LAMBDA_BUCKET/$S3_KEY"
+          - echo "✓ Lambda package uploaded as $S3_KEY"
+
+          # Validate CloudFormation template
+          - |
+            aws cloudformation validate-template \
+              --template-body file://cloudformation/infrastructure.yml \
+              --region $AWS_DEFAULT_REGION
+
+          # Deploy CloudFormation stack
+          - |
+            aws cloudformation deploy \
+              --template-file cloudformation/infrastructure.yml \
+              --stack-name "$STACK_NAME" \
+              --parameter-overrides \
+                "Environment=personal" \
+                "ProjectName=dam-migration" \
+                "CreativeDriveApiKey=$CREATIVEDRIVE_API_KEY" \
+                "BynderClientId=$BYNDER_CLIENT_ID" \
+                "BynderClientSecret=$BYNDER_CLIENT_SECRET" \
+                "BynderAccessTokenUrl=$BYNDER_ACCESS_TOKEN_URL" \
+                "BynderApiBaseUrl=$BYNDER_API_BASE_URL" \
+                "LambdaZipBucket=$LAMBDA_BUCKET" \
+                "LambdaZipKey=$S3_KEY" \
+              --capabilities CAPABILITY_NAMED_IAM \
+              --region "$AWS_DEFAULT_REGION" \
+              --no-fail-on-empty-changeset
+
+          # Get stack outputs
+          - echo "=========================================="
+          - echo "CloudFormation Stack Outputs"
+          - echo "=========================================="
+          - |
+            aws cloudformation describe-stacks \
+              --stack-name $STACK_NAME \
+              --region $AWS_DEFAULT_REGION \
+              --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
+              --output table
+          - echo ""
+          - echo "Deployment completed successfully!"
+          - echo ""
+
+pipelines:
+  pull-requests:
+    '**':
+      - step: *lint-build-test
+
+  branches:
+    main:
+      - step: *lint-build-test
+      - step: *package-lambda
+      - step: *deploy-cloudformation
+
+  custom:
+    run-migration:
+      - variables:
+          - name: MODE
+            default: delta
+            allowed-values:
+              - delta
+              - full
+          - name: MAX_ASSETS
+            default: "10"
+          - name: FOLDER_NAMES
+            default: ""
+          - name: ASSET_IDS
+            default: ""
+      - step:
+          name: Run DAM Migration
+          deployment: migration
+          script:
+            # Install AWS CLI and jq
+            - apt-get update && apt-get install -y awscli jq
+
+            # Configure AWS credentials
+            - export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+            - export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+            - export AWS_DEFAULT_REGION=${AWS_REGION:-us-east-1}
+            - export INGEST_LAMBDA=${INGEST_LAMBDA:-dam-migration-ingest-personal}
+
+            # Display configuration
+            - echo "=========================================="
+            - echo "Invoking Ingest Lambda"
+            - echo "=========================================="
+            - echo "Function:$INGEST_LAMBDA"
+            - echo "Mode:$MODE"
+            - echo "Max Assets:$MAX_ASSETS"
+
+            # Build payload with optional filters
+            - export PAYLOAD="{\"maxAssets\":$MAX_ASSETS,\"mode\":\"$MODE\""
+
+            # Add folder names filter if provided
+            - |
+              if [ -n "$FOLDER_NAMES" ]; then
+                echo "Folder Names: $FOLDER_NAMES"
+                FOLDER_ARRAY=$(echo "$FOLDER_NAMES" | jq -R 'split(",") | map(gsub("^\\s+|\\s+$";""))')
+                PAYLOAD="$PAYLOAD,\"folderNames\":$FOLDER_ARRAY"
+              fi
+
+            # Add asset IDs filter if provided
+            - |
+              if [ -n "$ASSET_IDS" ]; then
+                echo "Asset IDs: $ASSET_IDS"
+                ASSET_ARRAY=$(echo "$ASSET_IDS" | jq -R 'split(",") | map(gsub("^\\s+|\\s+$";""))')
+                PAYLOAD="$PAYLOAD,\"assetIds\":$ASSET_ARRAY"
+              fi
+
+            - PAYLOAD="$PAYLOAD}"
+            - echo ""
+            - echo "Payload:$PAYLOAD"
+            - echo ""
+
+            # Invoke Lambda
+            - |
+              RESPONSE=$(aws lambda invoke \
+                --function-name $INGEST_LAMBDA \
+                --payload "$PAYLOAD" \
+                --region $AWS_DEFAULT_REGION \
+                --cli-binary-format raw-in-base64-out \
+                response.json)
+
+            - echo "Lambda Response Metadata:"
+            - echo "$RESPONSE"
+            - echo ""
+
+            # Check if Lambda invocation failed
+            - |
+              if echo "$RESPONSE" | grep -q '"FunctionError"'; then
+                echo "❌ Lambda invocation failed"
+                echo "$RESPONSE"
+                if [ -f response.json ]; then
+                  echo ""
+                  echo "Error details:"
+                  cat response.json
+                fi
+                exit 1
+              fi
+
+            # Check response payload
+            - |
+              if [ -f response.json ]; then
+                echo "Lambda Output:"
+                cat response.json
+                echo ""
+
+                # Check for errors in response payload
+                if grep -q "errorMessage" response.json; then
+                  echo "❌ Lambda execution failed"
+                  cat response.json
+                  exit 1
+                fi
+
+                # Check for error status codes
+                if grep -q '"statusCode":\s*5[0-9][0-9]' response.json; then
+                  echo "❌ Lambda returned error status code"
+                  cat response.json
+                  exit 1
+                fi
+
+                echo "✅ Migration started successfully"
+              else
+                echo "⚠️  Warning: response.json not found"
+                exit 1
+              fi
+
+            # Check DynamoDB table
+            - echo "=========================================="
+            - echo "Checking Migration Status"
+            - echo "=========================================="
+            - |
+              ITEM_COUNT=$(aws dynamodb scan \
+                --table-name dam-migration-tracker-personal \
+                --select COUNT \
+                --region $AWS_DEFAULT_REGION \
+                --query 'Count' \
+                --output text)
+
+            - echo "Total items in migration tracker:$ITEM_COUNT"
+            - echo ""
+
+            # Get status breakdown
+            - echo "Status breakdown:"
+            - |
+              aws dynamodb scan \
+                --table-name dam-migration-tracker-personal \
+                --region $AWS_DEFAULT_REGION \
+                --projection-expression "#status" \
+                --expression-attribute-names '{"#status":"status"}' \
+                --query 'Items[*].status.S' \
+                --output text | sort | uniq -c
+
+            # Migration summary
+            - echo ""
+            - echo "=========================================="
+            - echo "Migration Summary"
+            - echo "=========================================="
+            - echo ""
+            - echo "✅ Ingest Lambda invoked successfully"
+            - echo "📊 Check CloudWatch Logs for details:"
+            - echo "   - Ingest:/aws/lambda/dam-migration-ingest-personal"
+            - echo "   - Processor:/aws/lambda/dam-migration-processor-personal"
+            - echo ""
+            - echo "🗄️  DynamoDB Table:dam-migration-tracker-personal"
+            - echo "📦 S3 Bucket:dam-migration-assets-personal"
+            - echo ""
