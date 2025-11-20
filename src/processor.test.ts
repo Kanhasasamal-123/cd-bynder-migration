@@ -133,8 +133,36 @@ describe('AssetMigrationProcessorLambda', () => {
     mockAxiosGet.mockResolvedValueOnce({
       data: {
         'property.brand': { id: 'ABC123', name: 'Brand' },
+        'property.style_number': { id: 'STYLE001', name: 'Style_Number' },
+        'property.color_code': { id: 'COLOR001', name: 'RLM_NRF_Color_Code' },
+        'property.angle_code': { id: 'ANGLE001', name: 'Ecom_Angle_Code' },
+        'property.angle_name': { id: 'ANGLENAME001', name: 'Angle_Name' },
+        'property.date_created': { id: 'DATE001', name: 'Date_Created' },
+        'property.ratio': { id: 'RATIO001', name: 'Ratio' },
+        'property.model': { id: 'MODEL001', name: 'Exif_Field_Model' },
+        'property.exposure': { id: 'EXPOSURE001', name: 'Exposure_Time' },
+        'property.fnumber': { id: 'FNUMBER001', name: 'F_Number' },
+        'property.shutter': { id: 'SHUTTER001', name: 'Shutter_Speed' },
+        'property.aperture': { id: 'APERTURE001', name: 'Aperture_Value' },
+        'property.metering': { id: 'METERING001', name: 'Metering_Mode' },
+        'property.season': { id: 'SEASON001', name: 'Season' },
+        'property.year': { id: 'YEAR001', name: 'Year' },
       },
     });
+
+    // Mock Bynder metaproperty options GET requests (for each field being mapped)
+    // These are called by mapFieldToPayload for each metadata field
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Style_Number
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // RLM_NRF_Color_Code
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Ecom_Angle_Code
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Angle_Name
+    mockAxiosGet.mockResolvedValueOnce({ data: [{ id: 'ratio-opt-1' }] }); // Ratio (26:35)
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Exif_Field_Model
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Exposure_Time
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // F_Number
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Shutter_Speed
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Aperture_Value
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Metering_Mode
 
     // Mock Bynder save media
     mockAxiosPost.mockResolvedValueOnce({
@@ -333,8 +361,36 @@ describe('AssetMigrationProcessorLambda', () => {
     mockAxiosGet.mockResolvedValueOnce({
       data: {
         'property.brand': { id: 'ABC123', name: 'Brand' },
+        'property.style_number': { id: 'STYLE001', name: 'Style_Number' },
+        'property.color_code': { id: 'COLOR001', name: 'RLM_NRF_Color_Code' },
+        'property.angle_code': { id: 'ANGLE001', name: 'Ecom_Angle_Code' },
+        'property.angle_name': { id: 'ANGLENAME001', name: 'Angle_Name' },
+        'property.date_created': { id: 'DATE001', name: 'Date_Created' },
+        'property.ratio': { id: 'RATIO001', name: 'Ratio' },
+        'property.model': { id: 'MODEL001', name: 'Exif_Field_Model' },
+        'property.exposure': { id: 'EXPOSURE001', name: 'Exposure_Time' },
+        'property.fnumber': { id: 'FNUMBER001', name: 'F_Number' },
+        'property.shutter': { id: 'SHUTTER001', name: 'Shutter_Speed' },
+        'property.aperture': { id: 'APERTURE001', name: 'Aperture_Value' },
+        'property.metering': { id: 'METERING001', name: 'Metering_Mode' },
+        'property.season': { id: 'SEASON001', name: 'Season' },
+        'property.year': { id: 'YEAR001', name: 'Year' },
       },
     });
+
+    // Mock Bynder metaproperty options GET requests (for each field being mapped)
+    // These are called by mapFieldToPayload for each metadata field
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Style_Number
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // RLM_NRF_Color_Code
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Ecom_Angle_Code
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Angle_Name
+    mockAxiosGet.mockResolvedValueOnce({ data: [{ id: 'ratio-opt-1' }] }); // Ratio (26:35)
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Exif_Field_Model
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Exposure_Time
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // F_Number
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Shutter_Speed
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Aperture_Value
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Metering_Mode
 
     // Mock Bynder save media
     mockAxiosPost.mockResolvedValueOnce({
