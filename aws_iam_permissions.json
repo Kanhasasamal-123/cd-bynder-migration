@@ -1,0 +1,62 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "TerraformStateAccess",
+            "Effect": "Allow",
+            "Action": [
+                "s3:ListAllMyBuckets",
+                "s3:GetObject",
+                "s3:PutObject",
+                "s3:DeleteObject"
+            ],
+            "Resource": [
+                "arn:aws:s3:::*/*",
+                "arn:aws:s3:::*"
+            ]
+        },
+        {
+            "Sid": "CloudFormationAccess",
+            "Effect": "Allow",
+            "Action": [
+                "cloudformation:*"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "DeployServerlessStack",
+            "Effect": "Allow",
+            "Action": [
+                "lambda:*",
+                "s3:*",
+                "dynamodb:*",
+                "iam:CreateRole",
+                "iam:PutRolePolicy",
+                "iam:AttachRolePolicy",
+                "iam:DeleteRole",
+                "iam:DeleteRolePolicy",
+                "iam:DetachRolePolicy",
+                "iam:GetRole",
+                "iam:GetRolePolicy",
+                "iam:ListRolePolicies",
+                "iam:ListAttachedRolePolicies",
+                "iam:PassRole",
+                "iam:TagRole",
+                "iam:UntagRole",
+                "secretsmanager:*",
+                "cloudwatch:PutMetricData",
+                "logs:*"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "CloudWatchLogManagement",
+            "Effect": "Allow",
+            "Action": [
+                "logs:DescribeLogGroups",
+                "logs:PutLogEvents"
+            ],
+            "Resource": "arn:aws:logs:*:*:log-group:/aws/lambda/*:*"
+        }
+    ]
+}
