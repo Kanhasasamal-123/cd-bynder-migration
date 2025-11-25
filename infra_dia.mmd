@@ -4,7 +4,7 @@ subgraph Bitbucket Account
 end
 subgraph AWS Account
 	Lambda:injest
-	DynamoDB::dam-migration-tracker-personal
+	DynamoDB::dam-migration-tracker-prod
 	Lambda:process
 	SecretsManager
 	CloudWatch
@@ -18,6 +18,6 @@ subgraph Bynder
 end
 pipeline--run-migration-->Lambda:injest
 Lambda:injest--retrieveAssets-->CDRestAPI
-Lambda:injest--put-->DynamoDB::dam-migration-tracker-personal
-DynamoDB::dam-migration-tracker-personal--trigger-->Lambda:process
+Lambda:injest--put-->DynamoDB::dam-migration-tracker-prod
+DynamoDB::dam-migration-tracker-prod--trigger-->Lambda:process
 Lambda:process--upload-->BYRestAPI

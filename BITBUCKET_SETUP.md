@@ -34,10 +34,10 @@ Go to **Repository Settings** → **Pipelines** → **Repository variables** and
 - `BYNDER_ACCESS_TOKEN_URL` - Bynder token endpoint URL
 - `BYNDER_API_BASE_URL` - Bynder API base URL
 - `LAMBDA_BUCKET` - S3 bucket for Lambda packages (optional, default: `dam-migration-lambda-packages`)
-- `STACK_NAME` - CloudFormation stack name (optional, default: `dam-migration-personal`)
+- `STACK_NAME` - CloudFormation stack name (optional, default: `dam-migration-prod`)
 
 #### Required for Migration Pipeline
-- `INGEST_LAMBDA` - Ingest Lambda function name (optional, default: `dam-migration-ingest-personal`)
+- `INGEST_LAMBDA` - Ingest Lambda function name (optional, default: `dam-migration-ingest-prod`)
 
 **Note:** Mark sensitive variables (API keys, secrets) as "Secured" when adding them.
 
@@ -145,7 +145,7 @@ Go to **Repository Settings** → **Pipelines** → **Repository variables** and
 
 ### Migration Pipeline Fails
 - Verify Lambda function name matches `INGEST_LAMBDA` variable
-- Check DynamoDB table exists: `dam-migration-tracker-personal`
+- Check DynamoDB table exists: `dam-migration-tracker-prod`
 - Review CloudWatch logs for the Lambda functions
 
 ## Cost Optimization

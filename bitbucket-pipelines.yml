@@ -1,4 +1,4 @@
-image: node:20
+image: node:22
 
 definitions:
   steps:
@@ -40,7 +40,7 @@ definitions:
 
           # Set environment variables
           - export LAMBDA_BUCKET=${LAMBDA_BUCKET:-dam-migration-lambda-packages}
-          - export STACK_NAME=${STACK_NAME:-dam-migration-personal}
+          - export STACK_NAME=${STACK_NAME:-dam-migration}
 
           # Create Lambda package bucket if it doesn't exist
           - |
@@ -77,7 +77,7 @@ definitions:
               --template-file cloudformation/infrastructure.yml \
               --stack-name "$STACK_NAME" \
               --parameter-overrides \
-                "Environment=personal" \
+                "Environment=prod" \
                 "ProjectName=dam-migration" \
                 "CreativeDriveApiKey=$CREATIVEDRIVE_API_KEY" \
                 "BynderClientId=$BYNDER_CLIENT_ID" \
@@ -140,7 +140,7 @@ pipelines:
             - export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
             - export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
             - export AWS_DEFAULT_REGION=${AWS_REGION:-us-east-1}
-            - export INGEST_LAMBDA=${INGEST_LAMBDA:-dam-migration-ingest-personal}
+            - export INGEST_LAMBDA=${INGEST_LAMBDA:-dam-migration-ingest-prod}
 
             # Display configuration
             - echo "=========================================="
@@ -233,7 +233,7 @@ pipelines:
             - echo "=========================================="
             - |
               ITEM_COUNT=$(aws dynamodb scan \
-                --table-name dam-migration-tracker-personal \
+                --table-name dam-migration-tracker-prod \
                 --select COUNT \
                 --region $AWS_DEFAULT_REGION \
                 --query 'Count' \
@@ -246,7 +246,7 @@ pipelines:
             - echo "Status breakdown:"
             - |
               aws dynamodb scan \
-                --table-name dam-migration-tracker-personal \
+                --table-name dam-migration-tracker-prod \
                 --region $AWS_DEFAULT_REGION \
                 --projection-expression "#status" \
                 --expression-attribute-names '{"#status":"status"}' \
@@ -261,9 +261,9 @@ pipelines:
             - echo ""
             - echo "✅ Ingest Lambda invoked successfully"
             - echo "📊 Check CloudWatch Logs for details:"
-            - echo "   - Ingest:/aws/lambda/dam-migration-ingest-personal"
-            - echo "   - Processor:/aws/lambda/dam-migration-processor-personal"
+            - echo "   - Ingest:/aws/lambda/dam-migration-ingest-prod"
+            - echo "   - Processor:/aws/lambda/dam-migration-processor-prod"
             - echo ""
-            - echo "🗄️  DynamoDB Table:dam-migration-tracker-personal"
-            - echo "📦 S3 Bucket:dam-migration-assets-personal"
+            - echo "🗄️  DynamoDB Table:dam-migration-tracker-prod"
+            - echo "📦 S3 Bucket:dam-migration-assets-prod"
             - echo ""

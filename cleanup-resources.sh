@@ -6,7 +6,7 @@
 set -e
 
 REGION="us-east-1"
-ENVIRONMENT="personal"
+ENVIRONMENT="prod"
 
 echo "Starting cleanup of AWS resources for environment: $ENVIRONMENT"
 echo "Region: $REGION"

@@ -174,9 +174,9 @@ aws s3 cp lambda-deployment.zip s3://dam-migration-lambda-packages/
 # Deploy CloudFormation stack
 aws cloudformation deploy \
   --template-file cloudformation/infrastructure.yml \
-  --stack-name dam-migration-personal \
+  --stack-name dam-migration-prod \
   --parameter-overrides \
-    Environment=personal \
+    Environment=prod \
     ProjectName=dam-migration \
     CreativeDriveApiKey=YOUR_API_KEY \
     BynderClientId=YOUR_CLIENT_ID \

@@ -4,8 +4,8 @@ Description: 'DAM Migration Infrastructure - CreativeDrive to Bynder'
 Parameters:
   Environment:
     Type: String
-    Default: personal
-    Description: Environment name (e.g., dev, staging, prod, personal)
+    Default: prod
+    Description: Environment name (e.g., dev, staging, prod)
 
   ProjectName:
     Type: String
@@ -253,7 +253,7 @@ Resources:
     DependsOn: IngestLambdaLogGroup
     Properties:
       FunctionName: !Sub '${ProjectName}-ingest-${Environment}'
-      Runtime: nodejs20.x
+      Runtime: nodejs22.x
       Handler: ingest.handler
       Role: !GetAtt IngestLambdaRole.Arn
       Timeout: 900
@@ -279,7 +279,7 @@ Resources:
     DependsOn: ProcessorLambdaLogGroup
     Properties:
       FunctionName: !Sub '${ProjectName}-processor-${Environment}'
-      Runtime: nodejs20.x
+      Runtime: nodejs22.x
       Handler: processor.handler
       Role: !GetAtt ProcessorLambdaRole.Arn
       Timeout: 300
