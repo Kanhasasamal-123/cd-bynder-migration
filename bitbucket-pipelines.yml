@@ -28,7 +28,7 @@ definitions:
 
     - step: &deploy-cloudformation
         name: Deploy CloudFormation Stack
-        deployment: migration
+        deployment: prod
         script:
           # Install AWS CLI
           - apt-get update && apt-get install -y awscli
@@ -131,7 +131,7 @@ pipelines:
             default: ""
       - step:
           name: Run DAM Migration
-          deployment: migration
+          deployment: prod
           script:
             # Install AWS CLI and jq
             - apt-get update && apt-get install -y awscli jq
