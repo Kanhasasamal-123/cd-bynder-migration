@@ -17,6 +17,7 @@ definitions:
         caches:
           - node
         script:
+          - apt-get update && apt-get install -y zip
           - npm ci
           - npm run build
           - cd dist
