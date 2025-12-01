@@ -10,6 +10,7 @@ definitions:
           - npm ci
           # - npm run lint
           - npm run build
+          - export CD_DIVISION_ID=${CD_DIVISION_ID:-76}
           - npm test
 
     - step: &package-lambda
