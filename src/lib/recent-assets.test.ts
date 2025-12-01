@@ -42,8 +42,8 @@ ${index + 1}. Asset ID: ${attrs.id}
    Filename: ${attrs.original_filename}
    Size: ${(attrs.original_filesize / 1024 / 1024).toFixed(2)} MB
    Extension: ${attrs.extension}
-   Folder ID: ${attrs.folder_id}
-   Division ID: ${attrs.division_id}
+   Folder ID: ${attrs.ts_folder_id}
+   Division ID: ${attrs.division}
    Public URL: ${attrs.meta?.image_origin || 'N/A'}
    ${attrs.meta?.updated_at ? `Updated: ${attrs.meta.updated_at}` : ''}
 `;
@@ -146,8 +146,8 @@ describe('Recent Assets from CreativeDrive', () => {
       const byDivision = new Map<string, Map<string, AssetWithPublicUrl[]>>();
       
       for (const asset of allAssets) {
-        const divId = asset.attributes.division_id;
-        const folderId = asset.attributes.folder_id || 'root';
+        const divId = asset.attributes.division;
+        const folderId = asset.attributes.ts_folder_id || 'root';
 
         if (!byDivision.has(divId)) {
           byDivision.set(divId, new Map());

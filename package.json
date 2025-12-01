@@ -12,6 +12,7 @@
     "test:coverage": "jest --coverage",
     "test:integration": "dotenv -e .env.local -- jest src/lib/lib.test.ts",
     "test:recent-assets": "dotenv -e .env.local -- jest src/lib/recent-assets.test.ts",
+    "test:single-asset": "dotenv -e .env.local -- jest src/lib/fetch-single-asset.test.ts",
     "prepare": "husky install",
     "format": "prettier --write 'src/**/*.ts'"
   },

@@ -82,37 +82,6 @@ async function updateAssetStatus(
   await docClient.send(command);
 }
 
-/**
- * Migrate asset from CreativeDrive to Bynder using shared client libraries
- */
-async function migrateAssetToBynder(
-  asset: MigrationAsset,
-  credentials: BynderCredentials,
-  bynderClient?: BynderClient
-): Promise<string> {
-  // Create clients
-  const creativeDriveClient = new CreativeDriveClient({
-    apiKey: '', // Not needed for download if we already have the publicUrl
-  });
-  const targetBynderClient = bynderClient ?? new BynderClient(credentials);
-  const migrationService = new MigrationService(creativeDriveClient, targetBynderClient);
-
-  // Migrate the asset
-  const result = await migrationService.migrateAsset(asset, {
-    onProgress: (progress) => {
-      console.log(`${progress.stage}: ${progress.message}`);
-      if (progress.details) {
-        console.log(JSON.stringify(progress.details));
-      }
-    },
-  });
-
-  console.log(`Successfully uploaded to Bynder: ${result.bynderId}`);
-  console.log(`Filename: ${result.filename}`);
-
-  return result.bynderId;
-}
-
 async function processAsset(creativeDriveAssetId: string): Promise<void> {
   console.log(`Processing asset: ${creativeDriveAssetId}`);
 
@@ -137,6 +106,9 @@ async function processAsset(creativeDriveAssetId: string): Promise<void> {
 
     // Step 2: Download from CreativeDrive and upload directly to Bynder
     const bynderCredentials = await getBynderCredentials();
+    const creativeDriveClient = new CreativeDriveClient({ apiKey: '' });
+    const bynderClient = new BynderClient(bynderCredentials);
+    const migrationService = new MigrationService(creativeDriveClient, bynderClient);
 
     // Convert DynamoDB record to MigrationAsset format
     const asset: MigrationAsset = {
@@ -146,23 +118,21 @@ async function processAsset(creativeDriveAssetId: string): Promise<void> {
       metadata: record.metadata,
     };
 
-    const bynderClient = new BynderClient(bynderCredentials);
-    const existingBynderId = await bynderClient.findMediaByFilename(record.originalFilename);
+    const result = await migrationService.migrateAsset(asset, {
+      upsertByFilename: record.originalFilename,
+      onProgress: (progress) => {
+        console.log(`${progress.stage}: ${progress.message}`);
+        if (progress.details) {
+          console.log(JSON.stringify(progress.details));
+        }
+      },
+    });
 
-    if (existingBynderId) {
-      console.log(
-        `Asset ${record.originalFilename} already exists in Bynder (${existingBynderId}), updating metadata.`
-      );
-      await bynderClient.updateMediaMetadata(existingBynderId, record.metadata || {});
-      await updateAssetStatus(creativeDriveAssetId, 'UPLOADED', { bynderId: existingBynderId });
-      return;
-    }
+    await updateAssetStatus(creativeDriveAssetId, 'UPLOADED', { bynderId: result.bynderId });
 
-    const bynderId = await migrateAssetToBynder(asset, bynderCredentials, bynderClient);
-
-    await updateAssetStatus(creativeDriveAssetId, 'UPLOADED', { bynderId });
-
-    console.log(`Successfully processed asset ${creativeDriveAssetId} -> Bynder ID: ${bynderId}`);
+    console.log(
+      `Successfully processed asset ${creativeDriveAssetId} -> Bynder ID: ${result.bynderId}`
+    );
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error(`Failed to process asset ${creativeDriveAssetId}:`, errorMessage);
