@@ -95,6 +95,72 @@ export class BynderClient {
     }
   }
 
+  private buildMetapropertiesPayload(assetMetadata: Record<string, string>): Record<string, string> {
+    const metapropertiesPayload: Record<string, string> = {};
+
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['style_number'] || '', 'Style_Number');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['color_code'] || '', 'RLM_NRF_Color_Code');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['angle_code'] || '', 'Ecom_Angle_Code');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['angle_name'] || '', 'Angle_Name');
+
+    if (assetMetadata['date_created'] || assetMetadata['date_shot']) {
+      const datePart = assetMetadata['date_created'] || assetMetadata['date_shot'];
+      const normalizedDatePart = datePart.replace(/:/g, '-');
+      this.mapFieldToPayload(metapropertiesPayload, `${normalizedDatePart}T00:00:00Z`, 'Date_Created');
+    }
+
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['model_name'] || '', 'Model');
+
+    this.mapFieldToPayload(metapropertiesPayload, '26:35', 'Ratio');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['model'] || '', 'Exif_Field_Model');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['exposure_time'] || '', 'Exposure_Time');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['f_number'] || '', 'F_Number');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['shutter_speed_value'] || '', 'Shutter_Speed');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['aperture_value'] || '', 'Aperture_Value');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['metering_mode'] || '', 'Metering_Mode');
+
+    if (assetMetadata['month']) {
+      let monthValue = assetMetadata['month'].substring(0, 2);
+      const yearValue = '20' + assetMetadata['month'].substring(2, 4);
+      if (monthValue === 'RE') {
+        monthValue = 'RE Resort';
+      } else if (monthValue === 'SP') {
+        monthValue = 'SP Spring';
+      } else if (monthValue === 'TR') {
+        monthValue = 'TR Trans';
+      } else if (monthValue === 'FA') {
+        monthValue = 'FA Fall';
+      }
+      this.mapFieldToPayload(metapropertiesPayload, monthValue, 'Season');
+      this.mapFieldToPayload(metapropertiesPayload, yearValue, 'Year');
+    }
+
+    this.mapFieldToPayload(metapropertiesPayload, 'Ecom', 'Asset_Purpose');
+    this.mapFieldToPayload(metapropertiesPayload, 'Product Image', 'Asset_Subtype');
+    this.mapFieldToPayload(metapropertiesPayload, 'Image', 'Asset_Type');
+    this.mapFieldToPayload(metapropertiesPayload, 'Ecom PDP', 'Program');
+
+    return metapropertiesPayload;
+  }
+
+  private async ensureMetapropertiesLoaded(authHeader: Record<string, string>): Promise<void> {
+    if (this.metaproperties.size > 0) {
+      return;
+    }
+
+    const metapropertiesResponse = await axios.get<BynderMetapropertiesResponse>(
+      `${this.credentials.apiBaseUrl}/api/v4/metaproperties?options=0`,
+      { headers: authHeader }
+    );
+
+    for (const fieldKey in metapropertiesResponse.data) {
+      if (Object.prototype.hasOwnProperty.call(metapropertiesResponse.data, fieldKey)) {
+        const field: BynderMetaproperty = metapropertiesResponse.data[fieldKey];
+        this.metaproperties.set(field.name, field.id);
+      }
+    }
+  }
+
   /**
    * Upload file to Bynder
    */
@@ -288,78 +354,8 @@ export class BynderClient {
     }
 
     // Step 6: Save media in Bynder
-    if (this.metaproperties.size === 0) {
-      const metapropertiesResponse = await axios.get<BynderMetapropertiesResponse>(
-        `${this.credentials.apiBaseUrl}/api/v4/metaproperties?options=0`,
-        { headers: authHeader }
-      );
-
-      for (const fieldKey in metapropertiesResponse.data) {
-        if (Object.prototype.hasOwnProperty.call(metapropertiesResponse.data, fieldKey)) {
-          const field: BynderMetaproperty = metapropertiesResponse.data[fieldKey];
-          
-          this.metaproperties.set(field.name, field.id);
-        }
-      }
-    }
-
-    // Build metaproperties payload
-    const metapropertiesPayload: Record<string, string> = {};
-
-    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['style_number'] || '', 'Style_Number');
-    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['color_code'] || '', 'RLM_NRF_Color_Code');
-    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['angle_code'] || '', 'Ecom_Angle_Code');
-    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['angle_name'] || '', 'Angle_Name');
-
-    if (assetMetadata['date_created'] || assetMetadata['date_shot']) {
-      const datePart = assetMetadata['date_created'] || assetMetadata['date_shot'];
-      const normalizedDatePart = datePart.replace(/:/g, '-');
-      this.mapFieldToPayload(metapropertiesPayload, `${normalizedDatePart}T00:00:00Z`, 'Date_Created');
-    }
-
-    // this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Shotlist_Name_Setlist_Name');
-    // this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Photographer');
-    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['model_name'] || '', 'Model');
-    
-    // this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Stylist');
-    // this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Art_Director');
-    // this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Image_Width');
-    // this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Image_Height');
-    // this.mapFieldToPayload(metapropertiesPayload, assetMetadata['system_resolution'] || '', '');
-    // this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Hair_Makeup');
-    // this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Location');
-    // this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Digital_Tech');
-    // this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Photographer_Assistant');
-    // this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Stylist_Assistant');
-    this.mapFieldToPayload(metapropertiesPayload, '26:35', 'Ratio');
-    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['model'] || '', 'Exif_Field_Model');
-    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['exposure_time'] || '', 'Exposure_Time');
-    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['f_number'] || '', 'F_Number');
-    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['shutter_speed_value'] || '', 'Shutter_Speed');
-    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['aperture_value'] || '', 'Aperture_Value');
-    // this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Max_Aperture_Value');
-    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['metering_mode'] || '', 'Metering_Mode');
-    
-    if (assetMetadata['month']) {
-      let monthValue = assetMetadata['month'].substring(0,2);
-      const yearValue = '20' + assetMetadata['month'].substring(2,4);
-      if (monthValue === 'RE') {
-        monthValue = 'RE Resort';
-      } else if (monthValue === 'SP') {
-        monthValue = 'SP Spring';
-      } else if (monthValue === 'TR') {
-        monthValue = 'TR Trans';
-      } else if (monthValue === 'FA') {
-        monthValue = 'FA Fall';
-      }
-      this.mapFieldToPayload(metapropertiesPayload, monthValue, 'Season');
-      this.mapFieldToPayload(metapropertiesPayload, yearValue, 'Year');
-    }
-
-    this.mapFieldToPayload(metapropertiesPayload, 'Ecom', 'Asset_Purpose');
-    this.mapFieldToPayload(metapropertiesPayload, 'Product Image', 'Asset_Subtype');
-    this.mapFieldToPayload(metapropertiesPayload, 'Image', 'Asset_Type');
-    this.mapFieldToPayload(metapropertiesPayload, 'Ecom PDP', 'Program');
+    await this.ensureMetapropertiesLoaded(authHeader);
+    const metapropertiesPayload = this.buildMetapropertiesPayload(assetMetadata);
 
     const formData = new FormData();
 
@@ -389,5 +385,62 @@ export class BynderClient {
     }
 
     return bynderId;
+  }
+
+  async findMediaByFilename(filename: string): Promise<string | null> {
+    const accessToken = await this.getAccessToken();
+    const authHeader = { Authorization: `Bearer ${accessToken}` };
+
+    const response = await axios.get(`${this.credentials.apiBaseUrl}/api/v4/media/`, {
+      headers: authHeader,
+      params: {
+        name: filename,
+        limit: 1,
+      },
+    });
+
+    const data = response.data;
+    let candidates: any[] = [];
+    if (Array.isArray(data)) {
+      candidates = data;
+    } else if (Array.isArray(data?.media)) {
+      candidates = data.media;
+    } else if (Array.isArray(data?.items)) {
+      candidates = data.items;
+    } else if (Array.isArray(data?.results)) {
+      candidates = data.results;
+    }
+
+    const media = candidates[0];
+    if (!media) {
+      return null;
+    }
+
+    return media.id || media.mediaid || media.mediaId || null;
+  }
+
+  async updateMediaMetadata(mediaId: string, assetMetadata: Record<string, string>): Promise<void> {
+    const accessToken = await this.getAccessToken();
+    const authHeader = { Authorization: `Bearer ${accessToken}` };
+
+    await this.ensureMetapropertiesLoaded(authHeader);
+    const metapropertiesPayload = this.buildMetapropertiesPayload(assetMetadata);
+
+    const formData = new FormData();
+    formData.append('mediaid', mediaId);
+    for (const [key, value] of Object.entries(metapropertiesPayload)) {
+      formData.append(key, value);
+    }
+
+    await axios.post(
+      `${this.credentials.apiBaseUrl}/api/v4/media/${mediaId}/`,
+      formData,
+      {
+        headers: {
+          ...authHeader,
+          ...formData.getHeaders(),
+        },
+      }
+    );
   }
 }

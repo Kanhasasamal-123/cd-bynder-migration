@@ -87,14 +87,15 @@ async function updateAssetStatus(
  */
 async function migrateAssetToBynder(
   asset: MigrationAsset,
-  credentials: BynderCredentials
+  credentials: BynderCredentials,
+  bynderClient?: BynderClient
 ): Promise<string> {
   // Create clients
   const creativeDriveClient = new CreativeDriveClient({
     apiKey: '', // Not needed for download if we already have the publicUrl
   });
-  const bynderClient = new BynderClient(credentials);
-  const migrationService = new MigrationService(creativeDriveClient, bynderClient);
+  const targetBynderClient = bynderClient ?? new BynderClient(credentials);
+  const migrationService = new MigrationService(creativeDriveClient, targetBynderClient);
 
   // Migrate the asset
   const result = await migrationService.migrateAsset(asset, {
@@ -145,7 +146,19 @@ async function processAsset(creativeDriveAssetId: string): Promise<void> {
       metadata: record.metadata,
     };
 
-    const bynderId = await migrateAssetToBynder(asset, bynderCredentials);
+    const bynderClient = new BynderClient(bynderCredentials);
+    const existingBynderId = await bynderClient.findMediaByFilename(record.originalFilename);
+
+    if (existingBynderId) {
+      console.log(
+        `Asset ${record.originalFilename} already exists in Bynder (${existingBynderId}), updating metadata.`
+      );
+      await bynderClient.updateMediaMetadata(existingBynderId, record.metadata || {});
+      await updateAssetStatus(creativeDriveAssetId, 'UPLOADED', { bynderId: existingBynderId });
+      return;
+    }
+
+    const bynderId = await migrateAssetToBynder(asset, bynderCredentials, bynderClient);
 
     await updateAssetStatus(creativeDriveAssetId, 'UPLOADED', { bynderId });
 
