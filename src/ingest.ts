@@ -1,6 +1,6 @@
 import { Handler } from 'aws-lambda';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
-import { CreativeDriveClient, Folder, AssetMetadata } from './lib/creativedrive-client';
+import { CreativeDriveClient, AssetMetadata } from './lib/creativedrive-client';
 import { calculateDateRange } from './lib/utils/dateUtils';
 import { putCreativeDriveAssetRecord } from './lib/dynamodb-client';
 
@@ -30,8 +30,10 @@ interface Asset {
 
 interface IngestEvent {
   maxAssets?: number;
-  divName?: string;
-  folderNames?: string[];
+  divisionId?: string;
+  divisionIds?: string[];
+  divName?: string; // Deprecated
+  folderNames?: string[]; // Deprecated
   assetIds?: string[];
   mode?: 'full' | 'delta';
 }
@@ -45,32 +47,6 @@ async function getCreativeDriveCredentials(): Promise<CreativeDriveCredentials> 
   }
 
   return JSON.parse(response.SecretString) as CreativeDriveCredentials;
-}
-
-async function fetchAllFoldersRecursively(
-  client: CreativeDriveClient,
-  folderId: string,
-  folderNameFilter?: string[]
-): Promise<Folder[]> {
-  const allFolders: Folder[] = [];
-  const subfolders = await client.getSubfolders(folderId);
-
-  for (const subfolder of subfolders) {
-    // Add the subfolder if it matches the filter or if no filter is specified
-    if (!folderNameFilter || folderNameFilter.includes(subfolder.attributes.name)) {
-      allFolders.push(subfolder);
-    }
-
-    // Recursively fetch subfolders
-    const nestedFolders = await fetchAllFoldersRecursively(
-      client,
-      subfolder.attributes.id,
-      folderNameFilter
-    );
-    allFolders.push(...nestedFolders);
-  }
-
-  return allFolders;
 }
 
 async function writeAssetToDynamoDB(
@@ -88,11 +64,10 @@ async function writeAssetToDynamoDB(
 
 interface IngestionFailure {
   assetId?: string;
-  folderId?: string;
-  folderName?: string;
+  divisionId?: string;
   filename?: string;
   error: string;
-  stage: 'fetch_metadata' | 'write_dynamodb' | 'fetch_assets' | 'fetch_folders' | 'other';
+  stage: 'fetch_metadata' | 'write_dynamodb' | 'fetch_assets' | 'other';
 }
 
 export const handler: Handler = async (event: IngestEvent) => {
@@ -106,19 +81,20 @@ export const handler: Handler = async (event: IngestEvent) => {
 
     // Get configuration from event
     const maxAssets = event.maxAssets || Infinity;
-    const folderNameFilter = event.folderNames;
     const assetIdFilter = event.assetIds;
     const divNameFilter = event.divName;
+    const divisionIdsInput = event.divisionIds ?? (event.divisionId ? [event.divisionId] : []);
     const mode = event.mode || 'delta';
+
+    if (!divisionIdsInput.length) {
+      throw new Error('divisionId or divisionIds must be provided');
+    }
 
     console.log(`Migration mode: ${mode}`);
     console.log(`Max assets to ingest: ${maxAssets === Infinity ? 'unlimited' : maxAssets}`);
     
     if (divNameFilter) {
-      console.log(`Filtering by division name: ${divNameFilter}`);
-    }
-    if (folderNameFilter) {
-      console.log(`Filtering by folder names: ${folderNameFilter.join(', ')}`);
+      console.log(`Filtering by division name (deprecated): ${divNameFilter}`);
     }
     if (assetIdFilter) {
       console.log(`Filtering by asset IDs: ${assetIdFilter.join(', ')}`);
@@ -127,194 +103,135 @@ export const handler: Handler = async (event: IngestEvent) => {
     // Track which filtered asset IDs still need to be found
     const remainingAssetIds = assetIdFilter ? new Set(assetIdFilter) : null;
 
-    // Fetch all divisions
-    const divisions = await client.getDivisions();
-    console.log(`Found ${divisions.length} divisions`);
-
     let totalAssetsIngested = 0;
     let limitReached = false;
     const failures: IngestionFailure[] = [];
 
-    for (const division of divisions) {
-      if (divNameFilter && division.attributes.name !== divNameFilter) {
-        console.log(`Skipping division: ${division.attributes.name} (not matching filter)`);
-        continue;
-      }
+    for (const rawDivisionId of divisionIdsInput) {
       if (limitReached) break;
 
-      const divisionId = division.attributes.id;
-      console.log(`Processing division: ${division.attributes.name} (ID: ${divisionId})`);
+      const numericDivisionId = Number(rawDivisionId);
+      if (Number.isNaN(numericDivisionId)) {
+        console.warn(`Skipping division (invalid ID: ${rawDivisionId})`);
+        continue;
+      }
 
-      // Fetch root folders for this division
-      const rootFolders = await client.getRootFolders(divisionId);
-      console.log(`Found ${rootFolders.length} root folders in division ${divisionId}`);
+      console.log(`Processing division ID: ${rawDivisionId}`);
 
-      // Process each root folder
-      for (const rootFolder of rootFolders) {
-        if (limitReached) break;
+      if (divNameFilter) {
+        console.warn(
+          'divName filter is deprecated. Please provide divisionId(s) directly. Continuing with provided division IDs.'
+        );
+      }
+      const dateRange = calculateDateRange(52560000);
+      let offset = 0;
+      const pageSize = 50;
+      let hasMore = true;
 
-        // Check if root folder matches filter
-        if (folderNameFilter && !folderNameFilter.includes(rootFolder.attributes.name)) {
-          console.log(`Skipping root folder: ${rootFolder.attributes.name} (not in filter)`);
-          continue;
-        }
-
-        // Build list of all folders to process (root folder + all subfolders)
-        const foldersToProcess: Folder[] = [rootFolder];
-
-        // Recursively fetch all subfolders
-        console.log(`Fetching subfolders for: ${rootFolder.attributes.name}`);
+      while (hasMore && !limitReached) {
         try {
-          const subfolders = await fetchAllFoldersRecursively(
-            client,
-            rootFolder.attributes.id,
-            folderNameFilter
-          );
-          foldersToProcess.push(...subfolders);
+          const { assets: assetsWithUrls = [], total } = await client.searchAssets({
+            divisions: [numericDivisionId],
+            folderId: '',
+            dateRange,
+            options: {
+              limit: pageSize,
+              offset,
+            },
+          });
 
           console.log(
-            `Processing ${foldersToProcess.length} folders (1 root + ${subfolders.length} subfolders)`
+            `Fetched ${assetsWithUrls.length} assets from division ${rawDivisionId} (offset: ${offset}, total: ${total})`
           );
-        } catch (error) {
-          const errorMsg =
-            error instanceof Error ? error.message : 'Unknown error fetching subfolders';
-          console.error(
-            `Failed to fetch subfolders for ${rootFolder.attributes.name}: ${errorMsg}`
-          );
-          failures.push({
-            folderId: rootFolder.attributes.id,
-            folderName: rootFolder.attributes.name,
-            error: errorMsg,
-            stage: 'fetch_folders',
-          });
-          // Continue processing the root folder even if subfolders fail
-          console.log('Continuing with root folder only...');
-        }
 
-        // Process assets in each folder
-        for (const folder of foldersToProcess) {
-          if (limitReached) break;
+          if (assetsWithUrls.length === 0) {
+            hasMore = false;
+            break;
+          }
 
-          const folderId = folder.attributes.id;
-          console.log(`Processing folder: ${folder.attributes.name} (ID: ${folderId})`);
-
-          // Use the search endpoint to get assets with public URLs
-          let offset = 0;
-          const limit = 50;
-          let hasMore = true;
-
-          // Use a very wide date range to get all assets (last 100 years = ~52,560,000 minutes)
-          const dateRange = calculateDateRange(52560000);
-
-          while (hasMore && !limitReached) {
-            try {
-              const { assets: assetsWithUrls, total } = await client.searchAssets({
-                divisions: [],
-                folderId: folderId,
-                dateRange,
-                options: {
-                  limit,
-                  offset,
-                },
-              });
-
-              console.log(
-                `Fetched ${assetsWithUrls.length} assets from folder ${folderId} (offset: ${offset}, total: ${total})`
-              );
-
-              for (const assetWithUrl of assetsWithUrls) {
-                if (totalAssetsIngested >= maxAssets) {
-                  limitReached = true;
-                  console.log(`Reached max assets limit of ${maxAssets}`);
-                  break;
-                }
-
-                // Apply asset ID filter
-                if (assetIdFilter && !assetIdFilter.includes(assetWithUrl.attributes.id)) {
-                  console.log(`Skipping asset ${assetWithUrl.attributes.id} (not in filter)`);
-                  continue;
-                }
-
-                try {
-                  // Fetch complete metadata for the asset
-                  console.log(`Fetching metadata for asset: ${assetWithUrl.attributes.id}`);
-                  const metadata = await client.getAssetMetadata(assetWithUrl.attributes.id);
-
-                  // Convert AssetWithPublicUrl to Asset format for writeAssetToDynamoDB
-                  const asset: Asset = {
-                    type: 'asset',
-                    attributes: {
-                      id: assetWithUrl.attributes.id,
-                      original_filename: assetWithUrl.attributes.original_filename,
-                      original_filesize: assetWithUrl.attributes.original_filesize,
-                      extension: assetWithUrl.attributes.extension,
-                      ts_folder_id: assetWithUrl.attributes.folder_id || folderId,
-                      division_id: assetWithUrl.attributes.division_id || divisionId,
-                      url: '',
-                      path: '',
-                      filename: assetWithUrl.attributes.original_filename,
-                    },
-                  };
-
-                  // Write to DynamoDB with metadata and public URL
-                  await writeAssetToDynamoDB(
-                    asset,
-                    metadata,
-                    assetWithUrl.attributes.meta.image_origin,
-                    mode
-                  );
-                  totalAssetsIngested++;
-
-                  console.log(
-                    `Ingested asset: ${assetWithUrl.attributes.original_filename} (${totalAssetsIngested}/${maxAssets === Infinity ? '∞' : maxAssets})`
-                  );
-
-                  // If filtering by asset IDs, track that we've found this one
-                  if (remainingAssetIds) {
-                    remainingAssetIds.delete(assetWithUrl.attributes.id);
-                    // If all filtered assets have been found, stop processing
-                    if (remainingAssetIds.size === 0) {
-                      limitReached = true;
-                      console.log(
-                        `All ${assetIdFilter?.length} filtered asset(s) have been ingested. Stopping.`
-                      );
-                      break;
-                    }
-                  }
-                } catch (error) {
-                  const errorMsg =
-                    error instanceof Error ? error.message : 'Unknown error processing asset';
-                  console.error(
-                    `Failed to process asset ${assetWithUrl.attributes.id} (${assetWithUrl.attributes.original_filename}): ${errorMsg}`
-                  );
-                  failures.push({
-                    assetId: assetWithUrl.attributes.id,
-                    filename: assetWithUrl.attributes.original_filename,
-                    folderId: folderId,
-                    folderName: folder.attributes.name,
-                    error: errorMsg,
-                    stage: errorMsg.includes('metadata') ? 'fetch_metadata' : 'write_dynamodb',
-                  });
-                  // Continue with next asset
-                }
-              }
-
-              offset += limit;
-              hasMore = offset < total && assetsWithUrls.length > 0;
-            } catch (error) {
-              const errorMsg =
-                error instanceof Error ? error.message : 'Unknown error fetching assets';
-              console.error(`Failed to fetch assets from folder ${folderId}: ${errorMsg}`);
-              failures.push({
-                folderId: folderId,
-                folderName: folder.attributes.name,
-                error: errorMsg,
-                stage: 'fetch_assets',
-              });
-              // Break out of the while loop for this folder and move to next folder
+          for (const assetWithUrl of assetsWithUrls) {
+            if (totalAssetsIngested >= maxAssets) {
+              limitReached = true;
+              console.log(`Reached max assets limit of ${maxAssets}`);
               break;
             }
+
+            if (assetIdFilter && !assetIdFilter.includes(assetWithUrl.attributes.id)) {
+              console.log(`Skipping asset ${assetWithUrl.attributes.id} (not in filter)`);
+              continue;
+            }
+
+            try {
+              console.log(`Fetching metadata for asset: ${assetWithUrl.attributes.id}`);
+              const metadata = await client.getAssetMetadata(assetWithUrl.attributes.id);
+
+              const asset: Asset = {
+                type: 'asset',
+                attributes: {
+                  id: assetWithUrl.attributes.id,
+                  original_filename: assetWithUrl.attributes.original_filename,
+                  original_filesize: assetWithUrl.attributes.original_filesize,
+                  extension: assetWithUrl.attributes.extension,
+                  ts_folder_id: assetWithUrl.attributes.folder_id || '',
+                  division_id: assetWithUrl.attributes.division_id || rawDivisionId,
+                  url: '',
+                  path: '',
+                  filename: assetWithUrl.attributes.original_filename,
+                },
+              };
+
+              await writeAssetToDynamoDB(
+                asset,
+                metadata,
+                assetWithUrl.attributes.meta?.image_origin,
+                mode
+              );
+              totalAssetsIngested++;
+
+              console.log(
+                `Ingested asset: ${assetWithUrl.attributes.original_filename} (${totalAssetsIngested}/${
+                  maxAssets === Infinity ? '∞' : maxAssets
+                })`
+              );
+
+              if (remainingAssetIds) {
+                remainingAssetIds.delete(assetWithUrl.attributes.id);
+                if (remainingAssetIds.size === 0) {
+                  limitReached = true;
+                  console.log(
+                    `All ${assetIdFilter?.length} filtered asset(s) have been ingested. Stopping.`
+                  );
+                  break;
+                }
+              }
+            } catch (error) {
+              const errorMsg =
+                error instanceof Error ? error.message : 'Unknown error processing asset';
+              console.error(
+                `Failed to process asset ${assetWithUrl.attributes.id} (${assetWithUrl.attributes.original_filename}): ${errorMsg}`
+              );
+              failures.push({
+                assetId: assetWithUrl.attributes.id,
+                filename: assetWithUrl.attributes.original_filename,
+                divisionId: rawDivisionId,
+                error: errorMsg,
+                stage: errorMsg.includes('metadata') ? 'fetch_metadata' : 'write_dynamodb',
+              });
+            }
           }
+
+          offset += pageSize;
+          hasMore = offset < total;
+        } catch (error) {
+          const errorMsg =
+            error instanceof Error ? error.message : 'Unknown error fetching assets';
+          console.error(`Failed to fetch assets from division ${rawDivisionId}: ${errorMsg}`);
+          failures.push({
+            divisionId: rawDivisionId,
+            error: errorMsg,
+            stage: 'fetch_assets',
+          });
+          break;
         }
       }
     }
@@ -324,9 +241,12 @@ export const handler: Handler = async (event: IngestEvent) => {
       console.warn(`\n⚠️  Ingestion completed with ${failures.length} failure(s):`);
       failures.forEach((failure, index) => {
         console.warn(`  ${index + 1}. ${failure.stage}: ${failure.error}`);
-        if (failure.filename) console.warn(`     File: ${failure.filename} (${failure.assetId})`);
-        if (failure.folderName)
-          console.warn(`     Folder: ${failure.folderName} (${failure.folderId})`);
+        if (failure.filename) {
+          console.warn(`     File: ${failure.filename} (${failure.assetId})`);
+        }
+        if (failure.divisionId) {
+          console.warn(`     Division: ${failure.divisionId}`);
+        }
       });
     }
 
@@ -352,8 +272,7 @@ export const handler: Handler = async (event: IngestEvent) => {
                 error: f.error,
                 assetId: f.assetId,
                 filename: f.filename,
-                folderId: f.folderId,
-                folderName: f.folderName,
+                divisionId: f.divisionId,
               }))
             : undefined,
         unfoundAssetIds:
