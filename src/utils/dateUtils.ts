@@ -9,6 +9,6 @@ export interface DateRange {
   end: string;
 }
 
-export function calculateDateRange(intervalMinutes: number = 60): DateRange {
+export function calculateDateRange(_intervalMinutes: number = 60): DateRange {
   throw new Error('calculateDateRange not implemented - should be mocked in tests');
 }
