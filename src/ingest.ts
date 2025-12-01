@@ -32,10 +32,10 @@ interface IngestEvent {
   maxAssets?: number;
   divisionId?: string;
   divisionIds?: string[];
-  divName?: string; // Deprecated
-  folderNames?: string[]; // Deprecated
   assetIds?: string[];
   mode?: 'full' | 'delta';
+  syncLastDays?: number;
+  dryRun?: boolean;
 }
 
 async function getCreativeDriveCredentials(): Promise<CreativeDriveCredentials> {
@@ -82,20 +82,35 @@ export const handler: Handler = async (event: IngestEvent) => {
     // Get configuration from event
     const maxAssets = event.maxAssets || Infinity;
     const assetIdFilter = event.assetIds;
-    const divNameFilter = event.divName;
     const divisionIdsInput = event.divisionIds ?? (event.divisionId ? [event.divisionId] : []);
     const mode = event.mode || 'delta';
+    const syncLastDays = event.syncLastDays;
+    const isDryRun = event.dryRun === true;
 
-    if (!divisionIdsInput.length) {
+    const normalizedDivisionIds = Array.from(
+      new Set(
+        divisionIdsInput
+          .map((id) => (id ?? '').toString().trim())
+          .filter((id) => id.length > 0)
+      )
+    );
+
+    if (normalizedDivisionIds.length === 0) {
       throw new Error('divisionId or divisionIds must be provided');
     }
 
-    console.log(`Migration mode: ${mode}`);
+    const syncWindowMinutes =
+      syncLastDays && syncLastDays > 0 ? syncLastDays * 24 * 60 : 52560000;
+    const dateRange = calculateDateRange(syncWindowMinutes);
+
+    console.log(`Migration mode: ${mode}${isDryRun ? ' (dry-run)' : ''}`);
     console.log(`Max assets to ingest: ${maxAssets === Infinity ? 'unlimited' : maxAssets}`);
-    
-    if (divNameFilter) {
-      console.log(`Filtering by division name (deprecated): ${divNameFilter}`);
+    if (syncLastDays && syncLastDays > 0) {
+      console.log(`Limiting to the last ${syncLastDays} day(s)`, dateRange);
+    } else {
+      console.log('Sync window not provided; ingesting full available history');
     }
+
     if (assetIdFilter) {
       console.log(`Filtering by asset IDs: ${assetIdFilter.join(', ')}`);
     }
@@ -107,7 +122,7 @@ export const handler: Handler = async (event: IngestEvent) => {
     let limitReached = false;
     const failures: IngestionFailure[] = [];
 
-    for (const rawDivisionId of divisionIdsInput) {
+    for (const rawDivisionId of normalizedDivisionIds) {
       if (limitReached) break;
 
       const numericDivisionId = Number(rawDivisionId);
@@ -118,12 +133,6 @@ export const handler: Handler = async (event: IngestEvent) => {
 
       console.log(`Processing division ID: ${rawDivisionId}`);
 
-      if (divNameFilter) {
-        console.warn(
-          'divName filter is deprecated. Please provide divisionId(s) directly. Continuing with provided division IDs.'
-        );
-      }
-      const dateRange = calculateDateRange(52560000);
       let offset = 0;
       const pageSize = 50;
       let hasMore = true;
@@ -162,6 +171,24 @@ export const handler: Handler = async (event: IngestEvent) => {
             }
 
             try {
+              if (isDryRun) {
+                console.log(
+                  `[DRY-RUN] Would ingest asset ${assetWithUrl.attributes.id} (${assetWithUrl.attributes.original_filename})`
+                );
+                totalAssetsIngested++;
+                if (remainingAssetIds) {
+                  remainingAssetIds.delete(assetWithUrl.attributes.id);
+                  if (remainingAssetIds.size === 0) {
+                    limitReached = true;
+                    console.log(
+                      `All ${assetIdFilter?.length} filtered asset(s) have been processed in dry-run. Stopping.`
+                    );
+                    break;
+                  }
+                }
+                continue;
+              }
+
               console.log(`Fetching metadata for asset: ${assetWithUrl.attributes.id}`);
               const metadata = await client.getAssetMetadata(assetWithUrl.attributes.id);
 
@@ -265,6 +292,7 @@ export const handler: Handler = async (event: IngestEvent) => {
             : `Ingestion completed with ${failures.length} failure(s)`,
         totalAssetsIngested,
         totalFailures: failures.length,
+        dryRun: isDryRun,
         failures:
           failures.length > 0
             ? failures.map((f) => ({

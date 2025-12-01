@@ -1,4 +1,5 @@
 import { handler } from './ingest';
+import * as dateUtils from './lib/utils/dateUtils';
 
 // Create simple mock functions - must be before jest.mock calls
 let mockDynamoSend: jest.Mock;
@@ -41,9 +42,17 @@ describe('CreativeDriveIngestLambda', () => {
     });
     mockAxiosGet = jest.fn();
     mockAxiosPost = jest.fn();
+    jest.spyOn(dateUtils, 'calculateDateRange').mockReturnValue({
+      start: '2020-01-01',
+      end: '2020-01-02',
+    });
 
     process.env.MIGRATION_TRACKER_TABLE = 'test-table';
     process.env.CREATIVE_DRIVE_SECRET_NAME = 'test-secret';
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   it('should fetch specified division and write assets to DynamoDB', async () => {
@@ -91,6 +100,7 @@ describe('CreativeDriveIngestLambda', () => {
     expect(JSON.parse(result.body)).toMatchObject({
       message: 'Ingestion completed successfully',
       totalAssetsIngested: 1,
+      dryRun: false,
     });
     expect(mockAxiosPost).toHaveBeenCalledTimes(1);
     expect(mockDynamoSend).toHaveBeenCalledTimes(1);
@@ -105,6 +115,7 @@ describe('CreativeDriveIngestLambda', () => {
     const body = JSON.parse(result.body);
     expect(body.totalFailures).toBe(1);
     expect(body.message).toMatch(/completed with 1 failure/);
+    expect(body.dryRun).toBe(false);
   });
 
   it('should ingest assets for multiple division IDs', async () => {
@@ -166,6 +177,7 @@ describe('CreativeDriveIngestLambda', () => {
     expect(JSON.parse(result.body)).toMatchObject({
       message: 'Ingestion completed successfully',
       totalAssetsIngested: 2,
+      dryRun: false,
     });
     expect(mockAxiosPost).toHaveBeenCalledTimes(2);
     expect(mockDynamoSend).toHaveBeenCalledTimes(2);
@@ -220,7 +232,79 @@ describe('CreativeDriveIngestLambda', () => {
     expect(JSON.parse(result.body)).toMatchObject({
       message: 'Ingestion completed successfully',
       totalAssetsIngested: 1,
+      dryRun: false,
     });
     expect(mockDynamoSend).toHaveBeenCalledTimes(1);
+  });
+
+  it('should honor syncLastDays parameter', async () => {
+    mockAxiosPost.mockResolvedValueOnce({
+      data: {
+        data: [
+          {
+            type: 'asset',
+            attributes: {
+              id: '900',
+              original_filename: 'recent-file.tif',
+              original_filesize: 123,
+              extension: 'tif',
+              folder_id: '500',
+              division_id: '45',
+              meta: {
+                image_origin: 'https://example.com/recent.tif',
+              },
+            },
+          },
+        ],
+        meta: { total: 1 },
+      },
+    });
+
+    mockAxiosGet.mockResolvedValueOnce({ data: { data: [] } });
+
+    await handler(
+      { maxAssets: 10, divisionId: '45', syncLastDays: 3 },
+      {} as any,
+      {} as any
+    );
+
+    expect(dateUtils.calculateDateRange).toHaveBeenCalledWith(3 * 24 * 60);
+  });
+
+  it('supports dry-run mode without writing to DynamoDB', async () => {
+    mockAxiosPost.mockResolvedValueOnce({
+      data: {
+        data: [
+          {
+            type: 'asset',
+            attributes: {
+              id: '999',
+              original_filename: 'dry-run-file.tif',
+              original_filesize: 50,
+              extension: 'tif',
+              folder_id: '300',
+              division_id: '45',
+              meta: {
+                image_origin: 'https://example.com/dry.tif',
+              },
+            },
+          },
+        ],
+        meta: { total: 1 },
+      },
+    });
+
+    const result = await handler(
+      { maxAssets: 10, divisionId: '45', dryRun: true },
+      {} as any,
+      {} as any
+    );
+
+    expect(result.statusCode).toBe(200);
+    const body = JSON.parse(result.body);
+    expect(body.dryRun).toBe(true);
+    expect(body.totalAssetsIngested).toBe(1);
+    expect(mockDynamoSend).not.toHaveBeenCalled();
+    expect(mockAxiosGet).not.toHaveBeenCalled();
   });
 });

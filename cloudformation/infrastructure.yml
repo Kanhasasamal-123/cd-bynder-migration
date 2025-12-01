@@ -164,6 +164,7 @@ Resources:
       LogGroupName: !Sub '/aws/lambda/${ProjectName}-processor-${Environment}'
       RetentionInDays: 14
 
+
   # IAM Role for Ingest Lambda
   IngestLambdaRole:
     Type: AWS::IAM::Role
@@ -247,6 +248,7 @@ Resources:
         - Key: Project
           Value: !Ref ProjectName
 
+
   # Lambda Function: CreativeDrive Ingest
   IngestLambda:
     Type: AWS::Lambda::Function
@@ -312,6 +314,8 @@ Resources:
         Filters:
           - Pattern: '{"eventName":["INSERT","MODIFY"],"dynamodb":{"NewImage":{"status":{"S":["PENDING"]}}}}'
 
+  # EventBridge schedule for Sync Lambda
+
 Outputs:
   MigrationAssetsBucketName:
     Description: Name of the S3 bucket for migration assets
@@ -336,6 +340,7 @@ Outputs:
     Value: !GetAtt ProcessorLambda.Arn
     Export:
       Name: !Sub '${AWS::StackName}-ProcessorLambda'
+
 
   CreativeDriveSecretArn:
     Description: ARN of the CreativeDrive credentials secret

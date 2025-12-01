@@ -127,12 +127,17 @@ pipelines:
               - full
           - name: MAX_ASSETS
             default: "10"
-          - name: DIVISION_NAME
-            default: ""
-          - name: FOLDER_NAMES
+          - name: DIVISION_IDS
             default: ""
           - name: ASSET_IDS
             default: ""
+          - name: SYNC_LAST_DAYS
+            default: ""
+          - name: DRY_RUN
+            default: "false"
+            allowed-values:
+              - "true"
+              - "false"
       - step:
           name: Run DAM Migration
           deployment: Production
@@ -157,20 +162,15 @@ pipelines:
             # Build payload with optional filters
             - export PAYLOAD="{\"maxAssets\":$MAX_ASSETS,\"mode\":\"$MODE\""
 
-            # Add division name filter if provided
+            # Require division IDs
             - |
-              if [ -n "$DIVISION_NAME" ]; then
-                echo "Division Name: $DIVISION_NAME"
-                PAYLOAD="$PAYLOAD,\"divisionName\":$DIVISION_NAME"
+              if [ -z "$DIVISION_IDS" ]; then
+                echo "❌ DIVISION_IDS is required (comma separated list of CreativeDrive division IDs)"
+                exit 1
               fi
-
-            # Add folder names filter if provided
-            - |
-              if [ -n "$FOLDER_NAMES" ]; then
-                echo "Folder Names: $FOLDER_NAMES"
-                FOLDER_ARRAY=$(echo "$FOLDER_NAMES" | jq -R 'split(",") | map(gsub("^\\s+|\\s+$";""))')
-                PAYLOAD="$PAYLOAD,\"folderNames\":$FOLDER_ARRAY"
-              fi
+              echo "Division IDs: $DIVISION_IDS"
+              DIVISION_ARRAY=$(echo "$DIVISION_IDS" | jq -R 'split(",") | map(gsub("^\\s+|\\s+$";""))')
+              PAYLOAD="$PAYLOAD,\"divisionIds\":$DIVISION_ARRAY"
 
             # Add asset IDs filter if provided
             - |
@@ -178,6 +178,20 @@ pipelines:
                 echo "Asset IDs: $ASSET_IDS"
                 ASSET_ARRAY=$(echo "$ASSET_IDS" | jq -R 'split(",") | map(gsub("^\\s+|\\s+$";""))')
                 PAYLOAD="$PAYLOAD,\"assetIds\":$ASSET_ARRAY"
+              fi
+
+            # Add syncLastDays if provided
+            - |
+              if [ -n "$SYNC_LAST_DAYS" ]; then
+                echo "Syncing last $SYNC_LAST_DAYS day(s)"
+                PAYLOAD="$PAYLOAD,\"syncLastDays\":$SYNC_LAST_DAYS"
+              fi
+
+            # Dry run flag
+            - |
+              if [ "$DRY_RUN" = "true" ]; then
+                echo "Dry run enabled"
+                PAYLOAD="$PAYLOAD,\"dryRun\":true"
               fi
 
             - PAYLOAD="$PAYLOAD}"
@@ -278,3 +292,4 @@ pipelines:
             - echo "🗄️  DynamoDB Table:dam-migration-tracker-prod"
             - echo "📦 S3 Bucket:dam-migration-assets-prod"
             - echo ""
+
