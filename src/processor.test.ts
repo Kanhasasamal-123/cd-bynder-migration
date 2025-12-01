@@ -54,6 +54,9 @@ describe('AssetMigrationProcessorLambda', () => {
   });
 
   it('should process asset and update status to UPLOADED', async () => {
+    // No existing Bynder asset
+    mockAxiosGet.mockResolvedValueOnce({ data: [] });
+
     const mockEvent: DynamoDBStreamEvent = {
       Records: [
         {
@@ -139,7 +142,8 @@ describe('AssetMigrationProcessorLambda', () => {
         'property.angle_name': { id: 'ANGLENAME001', name: 'Angle_Name' },
         'property.date_created': { id: 'DATE001', name: 'Date_Created' },
         'property.ratio': { id: 'RATIO001', name: 'Ratio' },
-        'property.model': { id: 'MODEL001', name: 'Exif_Field_Model' },
+        'property.model': { id: 'MODEL002', name: 'Model' },
+        'property.model_exif': { id: 'MODEL001', name: 'Exif_Field_Model' },
         'property.exposure': { id: 'EXPOSURE001', name: 'Exposure_Time' },
         'property.fnumber': { id: 'FNUMBER001', name: 'F_Number' },
         'property.shutter': { id: 'SHUTTER001', name: 'Shutter_Speed' },
@@ -147,15 +151,22 @@ describe('AssetMigrationProcessorLambda', () => {
         'property.metering': { id: 'METERING001', name: 'Metering_Mode' },
         'property.season': { id: 'SEASON001', name: 'Season' },
         'property.year': { id: 'YEAR001', name: 'Year' },
+        'property.asset_purpose': { id: 'ASSETPURPOSE001', name: 'Asset_Purpose' },
+        'property.asset_subtype': { id: 'ASSETSUBTYPE001', name: 'Asset_Subtype' },
+        'property.asset_type': { id: 'ASSETTYPE001', name: 'Asset_Type' },
+        'property.program': { id: 'PROGRAM001', name: 'Program' },
       },
     });
 
     // Mock Bynder metaproperty options GET requests (for each field being mapped)
     // These are called by mapFieldToPayload for each metadata field
+    // Order must match the order in bynder-client.ts mapFieldToPayload calls
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Style_Number
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // RLM_NRF_Color_Code
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Ecom_Angle_Code
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Angle_Name
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Date_Created (if date_created exists)
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Model
     mockAxiosGet.mockResolvedValueOnce({ data: [{ id: 'ratio-opt-1' }] }); // Ratio (26:35)
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Exif_Field_Model
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Exposure_Time
@@ -163,6 +174,10 @@ describe('AssetMigrationProcessorLambda', () => {
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Shutter_Speed
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Aperture_Value
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Metering_Mode
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Purpose
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Subtype
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Type
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Program
 
     // Mock Bynder save media
     mockAxiosPost.mockResolvedValueOnce({
@@ -182,7 +197,97 @@ describe('AssetMigrationProcessorLambda', () => {
     expect(mockDynamoSend).toHaveBeenCalledTimes(2);
   });
 
+  it('should update existing Bynder asset when filename matches', async () => {
+    const mockEvent: DynamoDBStreamEvent = {
+      Records: [
+        {
+          eventID: '1',
+          eventName: 'INSERT',
+          eventVersion: '1.0',
+          eventSource: 'aws:dynamodb',
+          awsRegion: 'us-east-1',
+          dynamodb: {
+            NewImage: {
+              creativeDriveAssetId: { S: '595167' },
+              status: { S: 'PENDING' },
+            },
+            SequenceNumber: '1',
+            SizeBytes: 100,
+            StreamViewType: 'NEW_IMAGE',
+          },
+        },
+      ],
+    };
+
+    mockDynamoSend
+      .mockResolvedValueOnce({
+        Item: {
+          creativeDriveAssetId: '595167',
+          status: 'PENDING',
+          originalFilename: 'test-image.tif',
+          filesize: 3570356,
+          extension: 'tif',
+          sourceUrl: 'https://cdn.example.com/assets/test.tif',
+          publicUrl: 'https://cdn.example.com/assets/test.tif',
+          metadata: {},
+        },
+      })
+      .mockResolvedValueOnce({}); // UpdateCommand (UPLOADED)
+
+    // Bynder OAuth token
+    mockAxiosPost.mockResolvedValueOnce({
+      data: { access_token: 'test-token', token_type: 'bearer', expires_in: 3600 },
+    });
+
+    // Existing media search result
+    mockAxiosGet.mockResolvedValueOnce({
+      data: [{ id: 'existing-bynder-id' }],
+    });
+
+    // Metaproperties load for metadata update
+    mockAxiosGet.mockResolvedValueOnce({
+      data: {
+        'property.brand': { id: 'ABC123', name: 'Brand' },
+        'property.style_number': { id: 'STYLE001', name: 'Style_Number' },
+        'property.color_code': { id: 'COLOR001', name: 'RLM_NRF_Color_Code' },
+        'property.angle_code': { id: 'ANGLE001', name: 'Ecom_Angle_Code' },
+        'property.angle_name': { id: 'ANGLENAME001', name: 'Angle_Name' },
+        'property.date_created': { id: 'DATE001', name: 'Date_Created' },
+        'property.ratio': { id: 'RATIO001', name: 'Ratio' },
+        'property.model': { id: 'MODEL002', name: 'Model' },
+        'property.model_exif': { id: 'MODEL001', name: 'Exif_Field_Model' },
+        'property.exposure': { id: 'EXPOSURE001', name: 'Exposure_Time' },
+        'property.fnumber': { id: 'FNUMBER001', name: 'F_Number' },
+        'property.shutter': { id: 'SHUTTER001', name: 'Shutter_Speed' },
+        'property.aperture': { id: 'APERTURE001', name: 'Aperture_Value' },
+        'property.metering': { id: 'METERING001', name: 'Metering_Mode' },
+        'property.season': { id: 'SEASON001', name: 'Season' },
+        'property.year': { id: 'YEAR001', name: 'Year' },
+        'property.asset_purpose': { id: 'ASSETPURPOSE001', name: 'Asset_Purpose' },
+        'property.asset_subtype': { id: 'ASSETSUBTYPE001', name: 'Asset_Subtype' },
+        'property.asset_type': { id: 'ASSETTYPE001', name: 'Asset_Type' },
+        'property.program': { id: 'PROGRAM001', name: 'Program' },
+      },
+    });
+
+    // Metadata update call
+    mockAxiosPost.mockResolvedValueOnce({ data: {} });
+
+    const result = await handler(mockEvent, {} as any, {} as any);
+
+    expect(result.statusCode).toBe(200);
+    expect(JSON.parse(result.body)).toMatchObject({
+      message: 'Batch processing complete',
+      succeeded: 1,
+      failed: 0,
+    });
+    expect(mockAxiosPost).toHaveBeenCalledTimes(2); // token + update
+    expect(mockAxiosGet).toHaveBeenCalledTimes(2); // search + metaproperties
+    expect(mockDynamoSend).toHaveBeenCalledTimes(2); // Get + Update
+  });
+
   it('should handle processing errors and update status to FAILED', async () => {
+    mockAxiosGet.mockResolvedValueOnce({ data: [] });
     const mockEvent: DynamoDBStreamEvent = {
       Records: [
         {
@@ -235,6 +340,7 @@ describe('AssetMigrationProcessorLambda', () => {
   });
 
   it('should skip already processed assets', async () => {
+    mockAxiosGet.mockResolvedValueOnce({ data: [] });
     const mockEvent: DynamoDBStreamEvent = {
       Records: [
         {
@@ -275,6 +381,7 @@ describe('AssetMigrationProcessorLambda', () => {
   });
 
   it('should use correct chunk filename format when registering chunks', async () => {
+    mockAxiosGet.mockResolvedValueOnce({ data: [] });
     const mockEvent: DynamoDBStreamEvent = {
       Records: [
         {
@@ -412,6 +519,7 @@ describe('AssetMigrationProcessorLambda', () => {
   });
 
   it('should handle 500 error from Bynder chunk registration', async () => {
+    mockAxiosGet.mockResolvedValueOnce({ data: [] });
     const mockEvent: DynamoDBStreamEvent = {
       Records: [
         {

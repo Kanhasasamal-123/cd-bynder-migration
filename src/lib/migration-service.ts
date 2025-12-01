@@ -26,6 +26,11 @@ export interface MigrationAsset {
   metadata?: Record<string, string>;
 }
 
+export interface MigrationOptions {
+  onProgress?: (progress: MigrationProgress) => void;
+  upsertByFilename?: string;
+}
+
 export class MigrationService {
   private creativeDriveClient: CreativeDriveClient;
   private bynderClient: BynderClient;
@@ -38,13 +43,38 @@ export class MigrationService {
   /**
    * Migrate an asset to Bynder
    */
-  async migrateAsset(
-    asset: MigrationAsset,
-    options: {
-      onProgress?: (progress: MigrationProgress) => void;
-    } = {}
-  ): Promise<MigrationResult> {
-    const { onProgress } = options;
+  async migrateAsset(asset: MigrationAsset, options: MigrationOptions = {}): Promise<MigrationResult> {
+    const { onProgress, upsertByFilename } = options;
+    const lookupFilename = upsertByFilename ?? asset.originalFilename;
+
+    if (lookupFilename) {
+      const existingBynderId = await this.bynderClient.findMediaByFilename(lookupFilename);
+      if (existingBynderId) {
+        onProgress?.({
+          stage: 'update',
+          message: `Updating existing Bynder asset ${existingBynderId}`,
+          details: { filename: lookupFilename },
+        });
+
+        await this.bynderClient.updateMediaMetadata(existingBynderId, asset.metadata || {});
+
+        onProgress?.({
+          stage: 'complete',
+          message: `Updated Bynder asset metadata`,
+          details: {
+            creativeDriveAssetId: asset.creativeDriveAssetId,
+            bynderId: existingBynderId,
+            mode: 'update',
+          },
+        });
+
+        return {
+          creativeDriveAssetId: asset.creativeDriveAssetId,
+          bynderId: existingBynderId,
+          filename: asset.originalFilename,
+        };
+      }
+    }
 
     onProgress?.({
       stage: 'download',

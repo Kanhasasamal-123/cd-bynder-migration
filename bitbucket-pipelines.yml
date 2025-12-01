@@ -126,6 +126,8 @@ pipelines:
               - full
           - name: MAX_ASSETS
             default: "10"
+          - name: DIVISION_NAME
+            default: ""
           - name: FOLDER_NAMES
             default: ""
           - name: ASSET_IDS
@@ -153,6 +155,13 @@ pipelines:
 
             # Build payload with optional filters
             - export PAYLOAD="{\"maxAssets\":$MAX_ASSETS,\"mode\":\"$MODE\""
+
+            # Add division name filter if provided
+            - |
+              if [ -n "$DIVISION_NAME" ]; then
+                echo "Division Name: $DIVISION_NAME"
+                PAYLOAD="$PAYLOAD,\"divisionName\":$DIVISION_NAME"
+              fi
 
             # Add folder names filter if provided
             - |

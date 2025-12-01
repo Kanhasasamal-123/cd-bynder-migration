@@ -9,6 +9,7 @@
  */
 
 import axios, { AxiosError, AxiosRequestConfig } from 'axios';
+import { DateRange } from './utils/dateUtils';
 
 const CREATIVE_DRIVE_BASE_URL = 'https://sandbox-share-api.creativedrive.com/api/v1';
 
@@ -22,6 +23,18 @@ export interface CreativeDriveAsset {
   filesize: number;
   extension: string;
   publicUrl: string;
+}
+
+export interface Options {
+  limit?: number;
+  offset?: number;
+}
+export interface SearchParams {
+  divisions: number[];
+  folderId: string;
+  dateRange: DateRange;
+  query?: string;
+  options: Options;
 }
 
 export interface Division {
@@ -211,11 +224,36 @@ export class CreativeDriveClient {
   /**
    * Fetch assets with public URLs from a folder (with pagination)
    */
-  async searchAssets(
-    folderId: string,
-    options: { limit?: number; offset?: number } = {}
-  ): Promise<{ assets: AssetWithPublicUrl[]; total: number }> {
+  async searchAssets({ divisions = [], folderId = '', dateRange, query, options = {} }: SearchParams): Promise<{ assets: AssetWithPublicUrl[]; total: number }> {
     const { limit = 50, offset = 0 } = options;
+
+    const payload: any = {
+      limit,
+      offset,
+      divisions,
+      filters: [
+        {
+          _att_created: {
+            values: [`${dateRange.start}, ${dateRange.end}`],
+            global: false
+          }
+        }
+      ],
+      sort_order: 'desc'
+    };
+
+    // Only include query if provided
+    if (query) {
+      payload.query = query;
+    }
+
+    // Only include parent_folder if folderId is provided and valid
+    if (folderId && folderId.trim() !== '') {
+      const parsedFolderId = parseInt(folderId, 10);
+      if (!isNaN(parsedFolderId)) {
+        payload.parent_folder = parsedFolderId;
+      }
+    }
 
     const response = await this.makeRequest<{
       data: AssetWithPublicUrl[];
@@ -224,11 +262,7 @@ export class CreativeDriveClient {
       'post',
       `${CREATIVE_DRIVE_BASE_URL}/search`,
       { headers: { Authorization: this.credentials.apiKey } },
-      {
-        parent_folder: parseInt(folderId),
-        offset,
-        limit,
-      }
+      payload
     );
 
     return {
@@ -248,4 +282,5 @@ export class CreativeDriveClient {
     );
     return response.data || [];
   }
+
 }

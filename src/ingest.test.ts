@@ -46,49 +46,7 @@ describe('CreativeDriveIngestLambda', () => {
     process.env.CREATIVE_DRIVE_SECRET_NAME = 'test-secret';
   });
 
-  it('should fetch divisions and write assets to DynamoDB', async () => {
-    // Mock divisions API response (GET /divisions)
-    mockAxiosGet.mockResolvedValueOnce({
-      data: {
-        data: [
-          {
-            type: 'division',
-            attributes: {
-              id: '45',
-              name: 'Test Division',
-              storage: '100.0',
-              totalFolders: 1,
-            },
-          },
-        ],
-      },
-    });
-
-    // Mock root folders search API response (POST /folders/_search)
-    mockAxiosPost.mockResolvedValueOnce({
-      data: {
-        data: [
-          {
-            type: 'folder',
-            attributes: {
-              id: '104849',
-              name: 'Test Folder',
-              parent_id: null,
-              division_id: '45',
-            },
-          },
-        ],
-      },
-    });
-
-    // Mock subfolders API response (GET /folders/{id}/folders)
-    mockAxiosGet.mockResolvedValueOnce({
-      data: {
-        data: [],
-      },
-    });
-
-    // Mock asset search API response (POST /search)
+  it('should fetch specified division and write assets to DynamoDB', async () => {
     mockAxiosPost.mockResolvedValueOnce({
       data: {
         data: [
@@ -111,7 +69,6 @@ describe('CreativeDriveIngestLambda', () => {
       },
     });
 
-    // Mock asset metadata API response (GET /assets/{id}/metadatas)
     mockAxiosGet.mockResolvedValueOnce({
       data: {
         data: [
@@ -124,117 +81,83 @@ describe('CreativeDriveIngestLambda', () => {
               value: 'Test Image Title',
             },
           },
-          {
-            type: 'metadata',
-            attributes: {
-              id: '2',
-              attribute_id: '11',
-              name: 'Description',
-              value: 'Test Description',
-            },
-          },
         ],
       },
     });
 
-    const result = await handler({ maxAssets: 10 }, {} as any, {} as any);
+    const result = await handler({ maxAssets: 10, divisionId: '45' }, {} as any, {} as any);
 
     expect(result.statusCode).toBe(200);
     expect(JSON.parse(result.body)).toMatchObject({
       message: 'Ingestion completed successfully',
       totalAssetsIngested: 1,
     });
-
-    expect(mockDynamoSend).toHaveBeenCalled();
+    expect(mockAxiosPost).toHaveBeenCalledTimes(1);
+    expect(mockDynamoSend).toHaveBeenCalledTimes(1);
   });
 
   it('should handle API errors gracefully', async () => {
-    // Mock API error (critical failure - can't fetch divisions)
-    mockAxiosGet.mockRejectedValueOnce(new Error('API Error'));
+    mockAxiosPost.mockRejectedValueOnce(new Error('API Error'));
 
-    // Should throw for critical errors
-    await expect(handler({}, {} as any, {} as any)).rejects.toThrow('Critical ingestion failure');
+    const result = await handler({ divisionId: '45' }, {} as any, {} as any);
+
+    expect(result.statusCode).toBe(200);
+    const body = JSON.parse(result.body);
+    expect(body.totalFailures).toBe(1);
+    expect(body.message).toMatch(/completed with 1 failure/);
   });
 
-  it('should filter by folder names', async () => {
-    // Mock divisions API response
-    mockAxiosGet.mockResolvedValueOnce({
-      data: {
-        data: [
-          {
-            type: 'division',
-            attributes: {
-              id: '45',
-              name: 'Test Division',
-              storage: '100.0',
-              totalFolders: 2,
-            },
-          },
-        ],
-      },
-    });
-
-    // Mock root folders search API response with 2 folders
-    mockAxiosPost.mockResolvedValueOnce({
-      data: {
-        data: [
-          {
-            type: 'folder',
-            attributes: {
-              id: '104849',
-              name: 'Matching Folder',
-              parent_id: null,
-              division_id: '45',
-            },
-          },
-          {
-            type: 'folder',
-            attributes: {
-              id: '104850',
-              name: 'Non-Matching Folder',
-              parent_id: null,
-              division_id: '45',
-            },
-          },
-        ],
-      },
-    });
-
-    // Mock subfolders for first folder (matching)
-    mockAxiosGet.mockResolvedValueOnce({
-      data: { data: [] },
-    });
-
-    // Mock asset search for matching folder
-    mockAxiosPost.mockResolvedValueOnce({
-      data: {
-        data: [
-          {
-            type: 'asset',
-            attributes: {
-              id: '595167',
-              original_filename: 'test-image.tif',
-              original_filesize: 3570356,
-              extension: 'tif',
-              folder_id: '104849',
-              division_id: '45',
-              meta: {
-                image_origin: 'https://cdn.example.com/public/test.tif',
+  it('should ingest assets for multiple division IDs', async () => {
+    mockAxiosPost
+      .mockResolvedValueOnce({
+        data: {
+          data: [
+            {
+              type: 'asset',
+              attributes: {
+                id: '100',
+                original_filename: 'division45-file.tif',
+                original_filesize: 100,
+                extension: 'tif',
+                folder_id: '200',
+                division_id: '45',
+                meta: {
+                  image_origin: 'https://example.com/45.tif',
+                },
               },
             },
-          },
-        ],
-        meta: { total: 1 },
-      },
-    });
+          ],
+          meta: { total: 1 },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          data: [
+            {
+              type: 'asset',
+              attributes: {
+                id: '101',
+                original_filename: 'division46-file.tif',
+                original_filesize: 100,
+                extension: 'tif',
+                folder_id: '201',
+                division_id: '46',
+                meta: {
+                  image_origin: 'https://example.com/46.tif',
+                },
+              },
+            },
+          ],
+          meta: { total: 1 },
+        },
+      });
 
-    // Mock metadata
-    mockAxiosGet.mockResolvedValueOnce({
-      data: { data: [] },
-    });
+    mockAxiosGet
+      .mockResolvedValueOnce({ data: { data: [] } })
+      .mockResolvedValueOnce({ data: { data: [] } });
 
     const result = await handler(
-      { maxAssets: 10, folderNames: ['Matching Folder'] },
+      { maxAssets: 10, divisionIds: ['45', '46'] },
       {} as any,
       {} as any
     );
@@ -242,51 +165,13 @@ describe('CreativeDriveIngestLambda', () => {
     expect(result.statusCode).toBe(200);
     expect(JSON.parse(result.body)).toMatchObject({
       message: 'Ingestion completed successfully',
-      totalAssetsIngested: 1,
+      totalAssetsIngested: 2,
     });
+    expect(mockAxiosPost).toHaveBeenCalledTimes(2);
+    expect(mockDynamoSend).toHaveBeenCalledTimes(2);
   });
 
   it('should filter by asset IDs', async () => {
-    // Mock divisions API response
-    mockAxiosGet.mockResolvedValueOnce({
-      data: {
-        data: [
-          {
-            type: 'division',
-            attributes: {
-              id: '45',
-              name: 'Test Division',
-              storage: '100.0',
-              totalFolders: 1,
-            },
-          },
-        ],
-      },
-    });
-
-    // Mock root folders search API response
-    mockAxiosPost.mockResolvedValueOnce({
-      data: {
-        data: [
-          {
-            type: 'folder',
-            attributes: {
-              id: '104849',
-              name: 'Test Folder',
-              parent_id: null,
-              division_id: '45',
-            },
-          },
-        ],
-      },
-    });
-
-    // Mock subfolders
-    mockAxiosGet.mockResolvedValueOnce({
-      data: { data: [] },
-    });
-
-    // Mock asset search with multiple assets
     mockAxiosPost.mockResolvedValueOnce({
       data: {
         data: [
@@ -323,17 +208,19 @@ describe('CreativeDriveIngestLambda', () => {
       },
     });
 
-    // Mock metadata for the matching asset only
-    mockAxiosGet.mockResolvedValueOnce({
-      data: { data: [] },
-    });
+    mockAxiosGet.mockResolvedValueOnce({ data: { data: [] } });
 
-    const result = await handler({ maxAssets: 10, assetIds: ['595167'] }, {} as any, {} as any);
+    const result = await handler(
+      { maxAssets: 10, divisionId: '45', assetIds: ['595167'] },
+      {} as any,
+      {} as any
+    );
 
     expect(result.statusCode).toBe(200);
     expect(JSON.parse(result.body)).toMatchObject({
       message: 'Ingestion completed successfully',
       totalAssetsIngested: 1,
     });
+    expect(mockDynamoSend).toHaveBeenCalledTimes(1);
   });
 });
