@@ -14,6 +14,7 @@
 import { CreativeDriveClient, CreativeDriveCredentials } from '../../src/lib/creativedrive-client';
 import { BynderClient, BynderCredentials } from '../../src/lib/bynder-client';
 import { MigrationService, MigrationAsset } from '../../src/lib/migration-service';
+import { calculateDateRange } from '../../src/lib/utils/dateUtils';
 
 /**
  * Get CreativeDrive credentials from environment
@@ -104,13 +105,21 @@ describe('CreativeDrive to Bynder Integration', () => {
       const limit = 50;
       let hasMore = true;
 
+      // Use a very wide date range to get all assets (last 100 years = ~52,560,000 minutes)
+      const dateRange = calculateDateRange(52560000);
+
       let asset;
 
       while (hasMore && !asset) {
         try {
-          const { assets: assetsWithUrls, total } = await creativeDriveClient.searchAssets(process.env.CD_SUBFOLDER_ID, {
-            limit,
-            offset,
+          const { assets: assetsWithUrls, total } = await creativeDriveClient.searchAssets({
+            divisions: [],
+            folderId: process.env.CD_SUBFOLDER_ID || '',
+            dateRange,
+            options: {
+              limit,
+              offset,
+            },
           });
 
           asset = assetsWithUrls.find((entry) => entry.attributes.id.toString() === process.env.CD_ASSET_ID);

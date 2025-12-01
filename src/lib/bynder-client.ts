@@ -84,14 +84,15 @@ export class BynderClient {
     return this.accessToken;
   }
 
-  async mapFieldToPayload(payload: Record<string, any>, cdFieldValue: string, bynderFieldName: string): Promise<void> {
+  mapFieldToPayload(payload: Record<string, any>, cdFieldValue: string, bynderFieldName: string) {
 
     const bynderPropertyId: string | undefined = this.metaproperties.get(bynderFieldName);
     if (!bynderPropertyId) {
       throw new Error(`Bynder metaproperty ID not found for field: ${bynderFieldName}`);
     }
-
-    payload[`metaproperty.${bynderPropertyId.toString()}`] = cdFieldValue || ''
+    if (!cdFieldValue) {
+      payload[`metaproperty.${bynderPropertyId.toString()}`] = cdFieldValue || ''
+    }
   }
 
   /**
@@ -305,42 +306,60 @@ export class BynderClient {
     // Build metaproperties payload
     const metapropertiesPayload: Record<string, string> = {};
 
-    await this.mapFieldToPayload(metapropertiesPayload, assetMetadata['style_number'] || '', 'Style_Number');
-    await this.mapFieldToPayload(metapropertiesPayload, assetMetadata['color_code'] || '', 'RLM_NRF_Color_Code');
-    await this.mapFieldToPayload(metapropertiesPayload, assetMetadata['angle_code'] || '', 'Ecom_Angle_Code');
-    await this.mapFieldToPayload(metapropertiesPayload, assetMetadata['angle_name'] || '', 'Angle_Name');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['style_number'] || '', 'Style_Number');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['color_code'] || '', 'RLM_NRF_Color_Code');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['angle_code'] || '', 'Ecom_Angle_Code');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['angle_name'] || '', 'Angle_Name');
+
     if (assetMetadata['date_created'] || assetMetadata['date_shot']) {
       const datePart = assetMetadata['date_created'] || assetMetadata['date_shot'];
       const normalizedDatePart = datePart.replace(/:/g, '-');
-      await this.mapFieldToPayload(metapropertiesPayload, `${normalizedDatePart}T00:00:00Z`, 'Date_Created');
+      this.mapFieldToPayload(metapropertiesPayload, `${normalizedDatePart}T00:00:00Z`, 'Date_Created');
     }
-    // await this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Shotlist_Name_Setlist_Name');
-    // await this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Photographer');
-    // await this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Model');
-    // await this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Stylist');
-    // await this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Art_Director');
-    // await this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Image_Width');
-    // await this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Image_Height');
-    // await this.mapFieldToPayload(metapropertiesPayload, assetMetadata['system_resolution'] || '', '');
-    // await this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Hair_Makeup');
-    // await this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Location');
-    // await this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Digital_Tech');
-    // await this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Photographer_Assistant');
-    // await this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Stylist_Assistant');
-    await this.mapFieldToPayload(metapropertiesPayload, '26:35', 'Ratio');
-    await this.mapFieldToPayload(metapropertiesPayload, assetMetadata['model'] || '', 'Exif_Field_Model');
-    await this.mapFieldToPayload(metapropertiesPayload, assetMetadata['exposure_time'] || '', 'Exposure_Time');
-    await this.mapFieldToPayload(metapropertiesPayload, assetMetadata['f_number'] || '', 'F_Number');
-    await this.mapFieldToPayload(metapropertiesPayload, assetMetadata['shutter_speed_value'] || '', 'Shutter_Speed');
-    await this.mapFieldToPayload(metapropertiesPayload, assetMetadata['aperture_value'] || '', 'Aperture_Value');
-    // await this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Max_Aperture_Value');
-    await this.mapFieldToPayload(metapropertiesPayload, assetMetadata['metering_mode'] || '', 'Metering_Mode');
+
+    // this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Shotlist_Name_Setlist_Name');
+    // this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Photographer');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['model_name'] || '', 'Model');
+    
+    // this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Stylist');
+    // this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Art_Director');
+    // this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Image_Width');
+    // this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Image_Height');
+    // this.mapFieldToPayload(metapropertiesPayload, assetMetadata['system_resolution'] || '', '');
+    // this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Hair_Makeup');
+    // this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Location');
+    // this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Digital_Tech');
+    // this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Photographer_Assistant');
+    // this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Stylist_Assistant');
+    this.mapFieldToPayload(metapropertiesPayload, '26:35', 'Ratio');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['model'] || '', 'Exif_Field_Model');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['exposure_time'] || '', 'Exposure_Time');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['f_number'] || '', 'F_Number');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['shutter_speed_value'] || '', 'Shutter_Speed');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['aperture_value'] || '', 'Aperture_Value');
+    // this.mapFieldToPayload(metapropertiesPayload, assetMetadata[''] || '', 'Max_Aperture_Value');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['metering_mode'] || '', 'Metering_Mode');
+    
     if (assetMetadata['month']) {
-      const monthValue = assetMetadata['month'].substring(0,2);
+      let monthValue = assetMetadata['month'].substring(0,2);
       const yearValue = '20' + assetMetadata['month'].substring(2,4);
-      await this.mapFieldToPayload(metapropertiesPayload, monthValue, 'Season');
-      await this.mapFieldToPayload(metapropertiesPayload, yearValue, 'Year');
+      if (monthValue === 'RE') {
+        monthValue = 'RE Resort';
+      } else if (monthValue === 'SP') {
+        monthValue = 'SP Spring';
+      } else if (monthValue === 'TR') {
+        monthValue = 'TR Trans';
+      } else if (monthValue === 'FA') {
+        monthValue = 'FA Fall';
+      }
+      this.mapFieldToPayload(metapropertiesPayload, monthValue, 'Season');
+      this.mapFieldToPayload(metapropertiesPayload, yearValue, 'Year');
     }
+
+    this.mapFieldToPayload(metapropertiesPayload, 'Ecom', 'Asset_Purpose');
+    this.mapFieldToPayload(metapropertiesPayload, 'Product Image', 'Asset_Subtype');
+    this.mapFieldToPayload(metapropertiesPayload, 'Image', 'Asset_Type');
+    this.mapFieldToPayload(metapropertiesPayload, 'Ecom PDP', 'Program');
 
     const formData = new FormData();
 

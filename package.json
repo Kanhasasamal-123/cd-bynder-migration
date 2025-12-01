@@ -11,6 +11,7 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:integration": "dotenv -e .env.local -- jest src/lib/lib.test.ts",
+    "test:recent-assets": "dotenv -e .env.local -- jest src/lib/recent-assets.test.ts",
     "prepare": "husky install",
     "format": "prettier --write 'src/**/*.ts'"
   },
@@ -38,6 +39,7 @@
     "@types/form-data": "^2.2.1",
     "@types/jest": "^29.5.11",
     "@types/node": "^22.17.0",
+    "@jest/test-sequencer": "^29.7.0",
     "@typescript-eslint/eslint-plugin": "^6.15.0",
     "@typescript-eslint/parser": "^6.15.0",
     "dotenv": "^17.2.3",

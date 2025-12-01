@@ -1,11 +1,9 @@
 import { Handler } from 'aws-lambda';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { CreativeDriveClient, Folder, AssetMetadata } from './lib/creativedrive-client';
+import { calculateDateRange } from './lib/utils/dateUtils';
+import { putCreativeDriveAssetRecord } from './lib/dynamodb-client';
 
-const dynamoClient = new DynamoDBClient({});
-const docClient = DynamoDBDocumentClient.from(dynamoClient);
 const secretsClient = new SecretsManagerClient({});
 
 const TABLE_NAME = process.env.MIGRATION_TRACKER_TABLE || '';
@@ -32,6 +30,7 @@ interface Asset {
 
 interface IngestEvent {
   maxAssets?: number;
+  divName?: string;
   folderNames?: string[];
   assetIds?: string[];
   mode?: 'full' | 'delta';
@@ -80,36 +79,11 @@ async function writeAssetToDynamoDB(
   publicUrl?: string,
   mode?: 'full' | 'delta'
 ): Promise<void> {
-  // Convert metadata array to an object for easier storage
-  const metadataObj: Record<string, string> = {};
-  if (metadata) {
-    metadata.forEach((meta) => {
-      metadataObj[meta.attributes.name] = meta.attributes.value;
-    });
-  }
-
-  const item = {
-    creativeDriveAssetId: String(asset.attributes.id),
+  await putCreativeDriveAssetRecord(TABLE_NAME, asset, metadata, {
     status: 'PENDING',
-    originalFilename: asset.attributes.original_filename,
-    filesize: asset.attributes.original_filesize,
-    extension: asset.attributes.extension,
-    folderId: String(asset.attributes.ts_folder_id),
-    divisionId: String(asset.attributes.division_id),
-    sourceUrl: `${asset.attributes.url}${asset.attributes.path}/${asset.attributes.filename}`,
-    publicUrl: publicUrl || '',
-    metadata: metadataObj,
     migrationMode: mode || 'delta',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-
-  const command = new PutCommand({
-    TableName: TABLE_NAME,
-    Item: item,
+    publicUrl: publicUrl || ''
   });
-
-  await docClient.send(command);
 }
 
 interface IngestionFailure {
@@ -134,10 +108,15 @@ export const handler: Handler = async (event: IngestEvent) => {
     const maxAssets = event.maxAssets || Infinity;
     const folderNameFilter = event.folderNames;
     const assetIdFilter = event.assetIds;
+    const divNameFilter = event.divName;
     const mode = event.mode || 'delta';
 
     console.log(`Migration mode: ${mode}`);
     console.log(`Max assets to ingest: ${maxAssets === Infinity ? 'unlimited' : maxAssets}`);
+    
+    if (divNameFilter) {
+      console.log(`Filtering by division name: ${divNameFilter}`);
+    }
     if (folderNameFilter) {
       console.log(`Filtering by folder names: ${folderNameFilter.join(', ')}`);
     }
@@ -157,6 +136,10 @@ export const handler: Handler = async (event: IngestEvent) => {
     const failures: IngestionFailure[] = [];
 
     for (const division of divisions) {
+      if (divNameFilter && division.attributes.name !== divNameFilter) {
+        console.log(`Skipping division: ${division.attributes.name} (not matching filter)`);
+        continue;
+      }
       if (limitReached) break;
 
       const divisionId = division.attributes.id;
@@ -220,11 +203,19 @@ export const handler: Handler = async (event: IngestEvent) => {
           const limit = 50;
           let hasMore = true;
 
+          // Use a very wide date range to get all assets (last 100 years = ~52,560,000 minutes)
+          const dateRange = calculateDateRange(52560000);
+
           while (hasMore && !limitReached) {
             try {
-              const { assets: assetsWithUrls, total } = await client.searchAssets(folderId, {
-                limit,
-                offset,
+              const { assets: assetsWithUrls, total } = await client.searchAssets({
+                divisions: [],
+                folderId: folderId,
+                dateRange,
+                options: {
+                  limit,
+                  offset,
+                },
               });
 
               console.log(
