@@ -110,6 +110,7 @@ export class BynderClient {
     }
 
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['model_name'] || '', 'Model');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['model_name'] || '', 'Recognized_Faces');
 
     this.mapFieldToPayload(metapropertiesPayload, '26:35', 'Ratio');
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['model'] || '', 'Exif_Field_Model');
@@ -118,6 +119,12 @@ export class BynderClient {
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['shutter_speed_value'] || '', 'Shutter_Speed');
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['aperture_value'] || '', 'Aperture_Value');
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['metering_mode'] || '', 'Metering_Mode');
+
+    if (assetMetadata['system_dimensions']) {
+      const dimensions = assetMetadata['system_dimensions'].split('x');
+      this.mapFieldToPayload(metapropertiesPayload, dimensions[0].trim() || '', 'Image_Width');
+      this.mapFieldToPayload(metapropertiesPayload, dimensions[1].trim() || '', 'Image_Height');
+    }
 
     if (assetMetadata['month']) {
       let monthValue = assetMetadata['month'].substring(0, 2);

@@ -147,12 +147,15 @@ describe('AssetMigrationProcessorLambda', () => {
         'property.date_created': { id: 'DATE001', name: 'Date_Created' },
         'property.ratio': { id: 'RATIO001', name: 'Ratio' },
         'property.model': { id: 'MODEL002', name: 'Model' },
+        'property.recognized_faces': { id: 'FACES001', name: 'Recognized_Faces' },
         'property.model_exif': { id: 'MODEL001', name: 'Exif_Field_Model' },
         'property.exposure': { id: 'EXPOSURE001', name: 'Exposure_Time' },
         'property.fnumber': { id: 'FNUMBER001', name: 'F_Number' },
         'property.shutter': { id: 'SHUTTER001', name: 'Shutter_Speed' },
         'property.aperture': { id: 'APERTURE001', name: 'Aperture_Value' },
         'property.metering': { id: 'METERING001', name: 'Metering_Mode' },
+        'property.image_width': { id: 'WIDTH001', name: 'Image_Width' },
+        'property.image_height': { id: 'HEIGHT001', name: 'Image_Height' },
         'property.season': { id: 'SEASON001', name: 'Season' },
         'property.year': { id: 'YEAR001', name: 'Year' },
         'property.asset_purpose': { id: 'ASSETPURPOSE001', name: 'Asset_Purpose' },
@@ -171,6 +174,7 @@ describe('AssetMigrationProcessorLambda', () => {
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Angle_Name
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Date_Created (if date_created exists)
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Model
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Recognized_Faces
     mockAxiosGet.mockResolvedValueOnce({ data: [{ id: 'ratio-opt-1' }] }); // Ratio (26:35)
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Exif_Field_Model
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Exposure_Time
@@ -178,6 +182,10 @@ describe('AssetMigrationProcessorLambda', () => {
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Shutter_Speed
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Aperture_Value
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Metering_Mode
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Image_Width
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Image_Height
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Season
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Year
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Purpose
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Subtype
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Type
@@ -296,12 +304,15 @@ describe('AssetMigrationProcessorLambda', () => {
         'property.date_created': { id: 'DATE001', name: 'Date_Created' },
         'property.ratio': { id: 'RATIO001', name: 'Ratio' },
         'property.model': { id: 'MODEL002', name: 'Model' },
+        'property.recognized_faces': { id: 'FACES001', name: 'Recognized_Faces' },
         'property.model_exif': { id: 'MODEL001', name: 'Exif_Field_Model' },
         'property.exposure': { id: 'EXPOSURE001', name: 'Exposure_Time' },
         'property.fnumber': { id: 'FNUMBER001', name: 'F_Number' },
         'property.shutter': { id: 'SHUTTER001', name: 'Shutter_Speed' },
         'property.aperture': { id: 'APERTURE001', name: 'Aperture_Value' },
         'property.metering': { id: 'METERING001', name: 'Metering_Mode' },
+        'property.image_width': { id: 'WIDTH001', name: 'Image_Width' },
+        'property.image_height': { id: 'HEIGHT001', name: 'Image_Height' },
         'property.season': { id: 'SEASON001', name: 'Season' },
         'property.year': { id: 'YEAR001', name: 'Year' },
         'property.asset_purpose': { id: 'ASSETPURPOSE001', name: 'Asset_Purpose' },
@@ -318,6 +329,7 @@ describe('AssetMigrationProcessorLambda', () => {
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Angle_Name
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Date_Created
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Model
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Recognized_Faces
     mockAxiosGet.mockResolvedValueOnce({ data: [{ id: 'ratio-opt-1' }] }); // Ratio
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Exif_Field_Model
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Exposure_Time
@@ -325,6 +337,14 @@ describe('AssetMigrationProcessorLambda', () => {
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Shutter_Speed
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Aperture_Value
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Metering_Mode
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Image_Width
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Image_Height
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Season
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Year
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Purpose
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Subtype
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Type
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Program
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Purpose
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Subtype
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Type
@@ -530,14 +550,22 @@ describe('AssetMigrationProcessorLambda', () => {
         'property.angle_name': { id: 'ANGLENAME001', name: 'Angle_Name' },
         'property.date_created': { id: 'DATE001', name: 'Date_Created' },
         'property.ratio': { id: 'RATIO001', name: 'Ratio' },
-        'property.model': { id: 'MODEL001', name: 'Exif_Field_Model' },
+        'property.model': { id: 'MODEL002', name: 'Model' },
+        'property.recognized_faces': { id: 'FACES001', name: 'Recognized_Faces' },
+        'property.model_exif': { id: 'MODEL001', name: 'Exif_Field_Model' },
         'property.exposure': { id: 'EXPOSURE001', name: 'Exposure_Time' },
         'property.fnumber': { id: 'FNUMBER001', name: 'F_Number' },
         'property.shutter': { id: 'SHUTTER001', name: 'Shutter_Speed' },
         'property.aperture': { id: 'APERTURE001', name: 'Aperture_Value' },
         'property.metering': { id: 'METERING001', name: 'Metering_Mode' },
+        'property.image_width': { id: 'WIDTH001', name: 'Image_Width' },
+        'property.image_height': { id: 'HEIGHT001', name: 'Image_Height' },
         'property.season': { id: 'SEASON001', name: 'Season' },
         'property.year': { id: 'YEAR001', name: 'Year' },
+        'property.asset_purpose': { id: 'ASSETPURPOSE001', name: 'Asset_Purpose' },
+        'property.asset_subtype': { id: 'ASSETSUBTYPE001', name: 'Asset_Subtype' },
+        'property.asset_type': { id: 'ASSETTYPE001', name: 'Asset_Type' },
+        'property.program': { id: 'PROGRAM001', name: 'Program' },
       },
     });
 
@@ -547,6 +575,8 @@ describe('AssetMigrationProcessorLambda', () => {
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // RLM_NRF_Color_Code
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Ecom_Angle_Code
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Angle_Name
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Model
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Recognized_Faces
     mockAxiosGet.mockResolvedValueOnce({ data: [{ id: 'ratio-opt-1' }] }); // Ratio (26:35)
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Exif_Field_Model
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Exposure_Time
@@ -554,6 +584,14 @@ describe('AssetMigrationProcessorLambda', () => {
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Shutter_Speed
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Aperture_Value
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Metering_Mode
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Image_Width
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Image_Height
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Season
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Year
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Purpose
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Subtype
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Type
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Program
 
     // Mock Bynder save media
     mockAxiosPost.mockResolvedValueOnce({
