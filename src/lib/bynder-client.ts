@@ -90,7 +90,7 @@ export class BynderClient {
     if (!bynderPropertyId) {
       throw new Error(`Bynder metaproperty ID not found for field: ${bynderFieldName}`);
     }
-    if (!cdFieldValue) {
+    if (cdFieldValue) {
       payload[`metaproperty.${bynderPropertyId.toString()}`] = cdFieldValue || ''
     }
   }
@@ -171,9 +171,10 @@ export class BynderClient {
     options: {
       chunkSize?: number;
       onProgress?: (progress: { current: number; total: number; percentage: number }) => void;
+      mediaId?: string;
     } = {}
   ): Promise<string> {
-    const { chunkSize = 1024 * 1024 * 5, onProgress } = options;
+    const { chunkSize = 1024 * 1024 * 5, onProgress, mediaId } = options;
 
     const accessToken = await this.getAccessToken();
     const authHeader = { Authorization: `Bearer ${accessToken}` };
@@ -362,17 +363,17 @@ export class BynderClient {
     // 2. Append simple text fields (key-value pairs)
     // The key 'name_field' is the name the API expects for this parameter.
     formData.append('importId', importId);
-    formData.append('name', filename); 
+    formData.append('name', filename);
 
     for (const [key, value] of Object.entries(metapropertiesPayload)) {
       formData.append(key, value);
     }
 
-    const saveResponse = await axios.post(
-      `${this.credentials.apiBaseUrl}/api/v4/media/save/${importId}`,
-      formData,
-      { headers: authHeader }
-    );
+    const saveEndpoint = mediaId
+      ? `${this.credentials.apiBaseUrl}/api/v4/media/${mediaId}/save/${importId}`
+      : `${this.credentials.apiBaseUrl}/api/v4/media/save/${importId}`;
+
+    const saveResponse = await axios.post(saveEndpoint, formData, { headers: authHeader });
 
     if (saveResponse.status < 200 || saveResponse.status >= 300) {
       throw new Error('Failed to update Bynder asset metadata');
@@ -387,14 +388,15 @@ export class BynderClient {
     return bynderId;
   }
 
-  async findMediaByFilename(filename: string): Promise<string | null> {
+  async findMediaByFilename(styleNumber: string, colorCode: string): Promise<string | null> {
     const accessToken = await this.getAccessToken();
     const authHeader = { Authorization: `Bearer ${accessToken}` };
 
     const response = await axios.get(`${this.credentials.apiBaseUrl}/api/v4/media/`, {
       headers: authHeader,
       params: {
-        name: filename,
+        property_Style_Number: styleNumber,
+        property_RLM_NRF_Color_Code: colorCode,
         limit: 1,
       },
     });
@@ -416,7 +418,7 @@ export class BynderClient {
       return null;
     }
 
-    return media.id || media.mediaid || media.mediaId || null;
+    return media.id || null;
   }
 
   async updateMediaMetadata(mediaId: string, assetMetadata: Record<string, string>): Promise<void> {

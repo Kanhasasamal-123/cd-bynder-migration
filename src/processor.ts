@@ -119,7 +119,6 @@ async function processAsset(creativeDriveAssetId: string): Promise<void> {
     };
 
     const result = await migrationService.migrateAsset(asset, {
-      upsertByFilename: record.originalFilename,
       onProgress: (progress) => {
         console.log(`${progress.stage}: ${progress.message}`);
         if (progress.details) {

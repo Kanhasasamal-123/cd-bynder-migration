@@ -7,13 +7,13 @@ describe('MigrationService', () => {
     publicUrl: 'https://example.com/sample.jpg',
     metadata: {
       style_number: 'ST123',
+      color_code: 'CC123',
     },
   };
 
   function createService(overrides?: {
     findMediaByFilename?: jest.Mock;
     uploadFile?: jest.Mock;
-    updateMediaMetadata?: jest.Mock;
     downloadAsset?: jest.Mock;
   }) {
     const creativeDriveClient = {
@@ -24,8 +24,6 @@ describe('MigrationService', () => {
       findMediaByFilename:
         overrides?.findMediaByFilename || jest.fn().mockResolvedValue(null),
       uploadFile: overrides?.uploadFile || jest.fn().mockResolvedValue('bynder-123'),
-      updateMediaMetadata:
-        overrides?.updateMediaMetadata || jest.fn().mockResolvedValue(undefined),
     };
 
     return {
@@ -43,12 +41,12 @@ describe('MigrationService', () => {
 
     const progressSpy = jest.fn();
     const result = await service.migrateAsset(baseAsset, {
-      upsertByFilename: baseAsset.originalFilename,
       onProgress: progressSpy,
     });
 
     expect(bynderClient.findMediaByFilename).toHaveBeenCalledWith(
-      baseAsset.originalFilename
+      baseAsset.metadata!.style_number,
+      baseAsset.metadata!.color_code
     );
     expect(creativeDriveClient.downloadAsset).toHaveBeenCalledWith(baseAsset.publicUrl);
     expect(bynderClient.uploadFile).toHaveBeenCalledWith(
@@ -61,27 +59,29 @@ describe('MigrationService', () => {
     expect(progressSpy).toHaveBeenCalled();
   });
 
-  it('updates metadata when Bynder asset already exists', async () => {
+  it('creates a new version when Bynder asset already exists', async () => {
     const { service, creativeDriveClient, bynderClient } = createService({
       findMediaByFilename: jest.fn().mockResolvedValue('existing-bynder-id'),
     });
 
     const progressSpy = jest.fn();
     const result = await service.migrateAsset(baseAsset, {
-      upsertByFilename: baseAsset.originalFilename,
       onProgress: progressSpy,
     });
 
     expect(bynderClient.findMediaByFilename).toHaveBeenCalledWith(
-      baseAsset.originalFilename
+      baseAsset.metadata!.style_number,
+      baseAsset.metadata!.color_code
     );
-    expect(bynderClient.updateMediaMetadata).toHaveBeenCalledWith(
-      'existing-bynder-id',
-      baseAsset.metadata || {}
+    expect(creativeDriveClient.downloadAsset).toHaveBeenCalledWith(baseAsset.publicUrl);
+    expect(bynderClient.uploadFile).toHaveBeenCalledWith(
+      expect.any(Buffer),
+      baseAsset.originalFilename,
+      baseAsset.metadata || {},
+      expect.objectContaining({ mediaId: 'existing-bynder-id' })
     );
-    expect(bynderClient.uploadFile).not.toHaveBeenCalled();
-    expect(creativeDriveClient.downloadAsset).not.toHaveBeenCalled();
-    expect(result.bynderId).toBe('existing-bynder-id');
+    expect(result.bynderId).toBe('bynder-123');
+    expect(progressSpy).toHaveBeenCalled();
   });
 });
 

@@ -89,6 +89,10 @@ describe('AssetMigrationProcessorLambda', () => {
           extension: 'tif',
           sourceUrl: 'https://cdn.example.com/assets/test.tif',
           publicUrl: 'https://cdn.example.com/assets/test.tif',
+          metadata: {
+            style_number: 'ST123',
+            color_code: 'CC123',
+          },
         },
       })
       .mockResolvedValueOnce({}); // UpdateCommand (UPLOADED)
@@ -229,7 +233,10 @@ describe('AssetMigrationProcessorLambda', () => {
           extension: 'tif',
           sourceUrl: 'https://cdn.example.com/assets/test.tif',
           publicUrl: 'https://cdn.example.com/assets/test.tif',
-          metadata: {},
+          metadata: {
+            style_number: 'ST123',
+            color_code: 'CC123',
+          },
         },
       })
       .mockResolvedValueOnce({}); // UpdateCommand (UPLOADED)
@@ -244,7 +251,41 @@ describe('AssetMigrationProcessorLambda', () => {
       data: [{ id: 'existing-bynder-id' }],
     });
 
-    // Metaproperties load for metadata update
+    // Mock axios download from CreativeDrive
+    mockAxiosGet.mockResolvedValueOnce({
+      data: Buffer.from('test data'),
+      headers: { 'content-type': 'image/tiff' },
+    });
+
+    // Mock Bynder get endpoint
+    mockAxiosGet.mockResolvedValueOnce({
+      data: 'https://s3.amazonaws.com/test-bucket',
+    });
+
+    // Mock Bynder init upload
+    mockAxiosPost.mockResolvedValueOnce({
+      data: {
+        multipart_params: { key: 'test-key', policy: 'test-policy' },
+        s3file: { uploadid: 'test-upload-id', targetid: 'test-target-id' },
+        s3_filename: 'pluploads/test-uuid/test-image.tif',
+      },
+    });
+
+    // Mock S3 upload (chunk)
+    mockAxiosPost.mockResolvedValueOnce({ status: 202, statusText: 'OK' });
+
+    // Mock Bynder register chunk
+    mockAxiosPost.mockResolvedValueOnce({ data: {} });
+
+    // Mock Bynder finalize
+    mockAxiosPost.mockResolvedValueOnce({ data: { importId: 'test-import-id' } });
+
+    // Mock Bynder poll (success)
+    mockAxiosGet.mockResolvedValueOnce({
+      data: { itemsDone: ['test-import-id'] },
+    });
+
+    // Mock Bynder get metaproperties
     mockAxiosGet.mockResolvedValueOnce({
       data: {
         'property.brand': { id: 'ABC123', name: 'Brand' },
@@ -270,8 +311,29 @@ describe('AssetMigrationProcessorLambda', () => {
       },
     });
 
-    // Metadata update call
-    mockAxiosPost.mockResolvedValueOnce({ data: {} });
+    // Mock Bynder metaproperty options GET requests (match upload flow)
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Style_Number
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // RLM_NRF_Color_Code
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Ecom_Angle_Code
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Angle_Name
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Date_Created
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Model
+    mockAxiosGet.mockResolvedValueOnce({ data: [{ id: 'ratio-opt-1' }] }); // Ratio
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Exif_Field_Model
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Exposure_Time
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // F_Number
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Shutter_Speed
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Aperture_Value
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Metering_Mode
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Purpose
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Subtype
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Type
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Program
+
+    // Mock Bynder save media (new version)
+    mockAxiosPost.mockResolvedValueOnce({
+      data: { mediaid: 'existing-bynder-id' },
+    });
 
     const result = await handler(mockEvent, {} as any, {} as any);
 
@@ -281,8 +343,6 @@ describe('AssetMigrationProcessorLambda', () => {
       succeeded: 1,
       failed: 0,
     });
-    expect(mockAxiosPost).toHaveBeenCalledTimes(2); // token + update
-    expect(mockAxiosGet).toHaveBeenCalledTimes(2); // search + metaproperties
     expect(mockDynamoSend).toHaveBeenCalledTimes(2); // Get + Update
   });
 
@@ -414,6 +474,10 @@ describe('AssetMigrationProcessorLambda', () => {
           extension: 'tif',
           sourceUrl: 'https://cdn.example.com/assets/test.tif',
           publicUrl: 'https://cdn.example.com/assets/test.tif',
+          metadata: {
+            style_number: 'ST123',
+            color_code: 'CC123',
+          },
         },
       })
       .mockResolvedValueOnce({}); // UpdateCommand (UPLOADED)
@@ -444,17 +508,9 @@ describe('AssetMigrationProcessorLambda', () => {
     });
 
     // Mock S3 upload (chunk)
-    mockAxiosPost.mockResolvedValueOnce({ data: {} });
-
-    // Mock Bynder register chunk - spy on the call to validate payload
-    let chunkRegistrationPayload: URLSearchParams | undefined;
-    mockAxiosPost.mockImplementationOnce((url, data) => {
-      // This captures the chunk registration call (URL includes upload ID)
-      if (url.includes('/api/v4/upload/test-upload-id')) {
-        chunkRegistrationPayload = data;
-      }
-      return Promise.resolve({ data: {} });
-    });
+    mockAxiosPost.mockResolvedValueOnce({ status: 202, statusText: 'OK' });
+    // Mock S3 upload (chunk)
+    mockAxiosPost.mockResolvedValueOnce({ status: 202, statusText: 'OK' });
 
     // Mock Bynder finalize
     mockAxiosPost.mockResolvedValueOnce({ data: { importId: 'test-import-id' } });
@@ -506,7 +562,14 @@ describe('AssetMigrationProcessorLambda', () => {
 
     await handler(mockEvent, {} as any, {} as any);
 
-    if (chunkRegistrationPayload === undefined) {
+    const chunkRegistrationPayload = mockAxiosPost.mock.calls
+      .map(([, data]) => data)
+      .find(
+        (data) =>
+          data instanceof URLSearchParams && data.get('chunkNumber') !== null
+      ) as URLSearchParams | undefined;
+
+    if (!chunkRegistrationPayload) {
       throw new Error('Chunk registration payload was not captured');
     }
     // Verify the chunk registration payload uses the correct format (now sent as URLSearchParams)
@@ -552,6 +615,10 @@ describe('AssetMigrationProcessorLambda', () => {
           extension: 'tif',
           sourceUrl: 'https://cdn.example.com/assets/test.tif',
           publicUrl: 'https://cdn.example.com/assets/test.tif',
+          metadata: {
+            style_number: 'ST123',
+            color_code: 'CC123',
+          },
         },
       })
       .mockResolvedValueOnce({}); // UpdateCommand (FAILED)

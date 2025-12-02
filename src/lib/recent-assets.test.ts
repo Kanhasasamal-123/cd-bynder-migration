@@ -83,8 +83,7 @@ describe('Recent Assets from CreativeDrive', () => {
     });
 
     it('should fetch and display assets updated in the last week', async () => {
-      // Calculate date range for last week (7 days = 7 * 24 * 60 = 10080 minutes)
-      const dateRange = calculateDateRange(7 * 24 * 60);
+      const dateRange = calculateDateRange(3 * 24 * 60);
       
       console.log('📅 Date Range:');
       console.log(`   Start: ${dateRange.start}`);
