@@ -121,6 +121,8 @@ export const handler: Handler = async (event: IngestEvent) => {
     let totalAssetsIngested = 0;
     let limitReached = false;
     const failures: IngestionFailure[] = [];
+    let consecutiveErrors = 0;
+    const maxConsecutiveErrors = 10;
 
     for (const rawDivisionId of normalizedDivisionIds) {
       if (limitReached) break;
@@ -214,6 +216,7 @@ export const handler: Handler = async (event: IngestEvent) => {
                 mode
               );
               totalAssetsIngested++;
+              consecutiveErrors = 0;
 
               console.log(
                 `Ingested asset: ${assetWithUrl.attributes.original_filename} (${totalAssetsIngested}/${
@@ -244,6 +247,15 @@ export const handler: Handler = async (event: IngestEvent) => {
                 error: errorMsg,
                 stage: errorMsg.includes('metadata') ? 'fetch_metadata' : 'write_dynamodb',
               });
+
+              consecutiveErrors++;
+              if (consecutiveErrors >= maxConsecutiveErrors) {
+                console.error(
+                  `Reached ${maxConsecutiveErrors} consecutive errors while processing assets. Halting ingestion.`
+                );
+                limitReached = true;
+                break;
+              }
             }
           }
 

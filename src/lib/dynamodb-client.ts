@@ -142,7 +142,7 @@ export async function putCreativeDriveAssetRecord(
   });
 
   await putAssetRecord(tableName, {
-    creativeDriveAssetId: asset.attributes.id,
+    creativeDriveAssetId: String(asset.attributes.id),
     status: options.status ?? 'PENDING',
     originalFilename: asset.attributes.original_filename,
     filesize: asset.attributes.original_filesize,
