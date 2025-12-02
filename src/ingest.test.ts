@@ -107,6 +107,50 @@ describe('CreativeDriveIngestLambda', () => {
     expect(mockDynamoSend).toHaveBeenCalledTimes(2);
   });
 
+  it('should skip already processed assets in delta mode and not count them', async () => {
+    mockAxiosPost.mockResolvedValueOnce({
+      data: {
+        data: [
+          {
+            type: 'asset',
+            attributes: {
+              id: '595167',
+              original_filename: 'test-image.tif',
+              original_filesize: 100,
+              extension: 'tif',
+              folder_id: '200',
+              division_id: '45',
+              meta: {
+                image_origin: 'https://example.com/45.tif',
+              },
+            },
+          },
+        ],
+        meta: { total: 1 },
+      },
+    });
+
+    mockAxiosGet.mockResolvedValueOnce({ data: { data: [] } });
+
+    mockDynamoSend.mockResolvedValueOnce({
+      Item: {
+        creativeDriveAssetId: '595167',
+        status: 'UPLOADED',
+        migrationMode: 'delta',
+      },
+    });
+
+    const result = await handler({ maxAssets: 10, divisionId: '45' }, {} as any, {} as any);
+
+    expect(result.statusCode).toBe(200);
+    expect(JSON.parse(result.body)).toMatchObject({
+      message: 'Ingestion completed successfully',
+      totalAssetsIngested: 0,
+      dryRun: false,
+    });
+    expect(mockDynamoSend).toHaveBeenCalledTimes(1);
+  });
+
   it('should handle API errors gracefully', async () => {
     mockAxiosPost.mockRejectedValueOnce(new Error('API Error'));
 

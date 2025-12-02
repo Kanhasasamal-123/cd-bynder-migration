@@ -125,7 +125,7 @@ export async function putCreativeDriveAssetRecord(
   asset: CreativeDriveAssetLike,
   metadata?: AssetMetadata[],
   options: PutCreativeDriveAssetOptions = {}
-): Promise<void> {
+): Promise<boolean> {
   const metadataMap = metadataArrayToMap(metadata);
   const folderId =
     asset.attributes.folder_id ??
@@ -151,11 +151,16 @@ export async function putCreativeDriveAssetRecord(
   const currentStatus = existingRecord.Item?.status;
   const requestedMode = options.migrationMode ?? 'delta';
 
-  if (existingRecord.Item && requestedMode === 'delta' && currentStatus && currentStatus !== 'PENDING') {
+  if (
+    existingRecord.Item &&
+    requestedMode === 'delta' &&
+    currentStatus &&
+    currentStatus !== 'PENDING'
+  ) {
     console.log(
       `Skipping asset ${asset.attributes.id} because it's already ${currentStatus} and mode is delta.`
     );
-    return;
+    return false;
   }
 
   if (existingRecord.Item && requestedMode === 'full') {
@@ -177,5 +182,7 @@ export async function putCreativeDriveAssetRecord(
     metadata: metadataMap,
     migrationMode: options.migrationMode ?? 'delta'
   });
+
+  return true;
 }
 

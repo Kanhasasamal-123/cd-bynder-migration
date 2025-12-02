@@ -54,8 +54,8 @@ async function writeAssetToDynamoDB(
   metadata?: AssetMetadata[],
   publicUrl?: string,
   mode?: 'full' | 'delta'
-): Promise<void> {
-  await putCreativeDriveAssetRecord(TABLE_NAME, asset, metadata, {
+): Promise<boolean> {
+  return putCreativeDriveAssetRecord(TABLE_NAME, asset, metadata, {
     status: 'PENDING',
     migrationMode: mode || 'delta',
     publicUrl: publicUrl || ''
@@ -209,12 +209,27 @@ export const handler: Handler = async (event: IngestEvent) => {
                 },
               };
 
-              await writeAssetToDynamoDB(
+              const recordInserted = await writeAssetToDynamoDB(
                 asset,
                 metadata,
                 assetWithUrl.attributes.meta?.image_origin,
                 mode
               );
+
+              if (!recordInserted) {
+                if (remainingAssetIds) {
+                  remainingAssetIds.delete(assetWithUrl.attributes.id);
+                  if (remainingAssetIds.size === 0) {
+                    limitReached = true;
+                    console.log(
+                      `All ${assetIdFilter?.length} filtered asset(s) have already been processed. Stopping.`
+                    );
+                    break;
+                  }
+                }
+                continue;
+              }
+
               totalAssetsIngested++;
               consecutiveErrors = 0;
 
