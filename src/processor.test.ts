@@ -162,6 +162,7 @@ describe('AssetMigrationProcessorLambda', () => {
         'property.asset_subtype': { id: 'ASSETSUBTYPE001', name: 'Asset_Subtype' },
         'property.asset_type': { id: 'ASSETTYPE001', name: 'Asset_Type' },
         'property.program': { id: 'PROGRAM001', name: 'Program' },
+        'property.status': { id: 'STATUS001', name: 'Status' },
       },
     });
 
@@ -190,6 +191,7 @@ describe('AssetMigrationProcessorLambda', () => {
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Subtype
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Type
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Program
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Status
 
     // Mock Bynder save media
     mockAxiosPost.mockResolvedValueOnce({
@@ -319,6 +321,7 @@ describe('AssetMigrationProcessorLambda', () => {
         'property.asset_subtype': { id: 'ASSETSUBTYPE001', name: 'Asset_Subtype' },
         'property.asset_type': { id: 'ASSETTYPE001', name: 'Asset_Type' },
         'property.program': { id: 'PROGRAM001', name: 'Program' },
+        'property.status': { id: 'STATUS001', name: 'Status' },
       },
     });
 
@@ -345,10 +348,7 @@ describe('AssetMigrationProcessorLambda', () => {
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Subtype
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Type
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Program
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Purpose
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Subtype
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Type
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Program
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Status
 
     // Mock Bynder save media (new version)
     mockAxiosPost.mockResolvedValueOnce({
@@ -566,6 +566,7 @@ describe('AssetMigrationProcessorLambda', () => {
         'property.asset_subtype': { id: 'ASSETSUBTYPE001', name: 'Asset_Subtype' },
         'property.asset_type': { id: 'ASSETTYPE001', name: 'Asset_Type' },
         'property.program': { id: 'PROGRAM001', name: 'Program' },
+        'property.status': { id: 'STATUS001', name: 'Status' },
       },
     });
 
@@ -592,6 +593,7 @@ describe('AssetMigrationProcessorLambda', () => {
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Subtype
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Type
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Program
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Status
 
     // Mock Bynder save media
     mockAxiosPost.mockResolvedValueOnce({
