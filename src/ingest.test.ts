@@ -18,7 +18,8 @@ jest.mock('@aws-sdk/lib-dynamodb', () => ({
       send: (...args: any[]) => mockDynamoSend(...args),
     })),
   },
-  PutCommand: jest.fn((params) => params),
+  PutCommand: jest.fn((params) => ({ ...params, __type: 'PutCommand' })),
+  GetCommand: jest.fn((params) => ({ ...params, __type: 'GetCommand' })),
 }));
 
 jest.mock('@aws-sdk/client-secrets-manager', () => ({
@@ -103,7 +104,7 @@ describe('CreativeDriveIngestLambda', () => {
       dryRun: false,
     });
     expect(mockAxiosPost).toHaveBeenCalledTimes(1);
-    expect(mockDynamoSend).toHaveBeenCalledTimes(1);
+    expect(mockDynamoSend).toHaveBeenCalledTimes(2);
   });
 
   it('should handle API errors gracefully', async () => {
@@ -180,7 +181,7 @@ describe('CreativeDriveIngestLambda', () => {
       dryRun: false,
     });
     expect(mockAxiosPost).toHaveBeenCalledTimes(2);
-    expect(mockDynamoSend).toHaveBeenCalledTimes(2);
+    expect(mockDynamoSend).toHaveBeenCalledTimes(4);
   });
 
   it('should filter by asset IDs', async () => {
@@ -234,7 +235,7 @@ describe('CreativeDriveIngestLambda', () => {
       totalAssetsIngested: 1,
       dryRun: false,
     });
-    expect(mockDynamoSend).toHaveBeenCalledTimes(1);
+    expect(mockDynamoSend).toHaveBeenCalledTimes(2);
   });
 
   it('should honor syncLastDays parameter', async () => {

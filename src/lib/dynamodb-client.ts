@@ -1,5 +1,5 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { AssetMetadata } from './creativedrive-client';
 
 const dynamoClient = new DynamoDBClient({});
@@ -140,6 +140,29 @@ export async function putCreativeDriveAssetRecord(
     metadata: metadataMap,
     fallback: options.publicUrl ?? asset.attributes.meta?.image_origin ?? ''
   });
+
+  const existingRecord = await docClient.send(
+    new GetCommand({
+      TableName: tableName,
+      Key: { creativeDriveAssetId: String(asset.attributes.id) },
+    })
+  );
+
+  const currentStatus = existingRecord.Item?.status;
+  const requestedMode = options.migrationMode ?? 'delta';
+
+  if (existingRecord.Item && requestedMode === 'delta' && currentStatus && currentStatus !== 'PENDING') {
+    console.log(
+      `Skipping asset ${asset.attributes.id} because it's already ${currentStatus} and mode is delta.`
+    );
+    return;
+  }
+
+  if (existingRecord.Item && requestedMode === 'full') {
+    console.log(
+      `Overwriting asset ${asset.attributes.id} (full mode) and resetting status to PENDING`
+    );
+  }
 
   await putAssetRecord(tableName, {
     creativeDriveAssetId: String(asset.attributes.id),

@@ -21,7 +21,6 @@ interface MigrationRecord {
   extension: string;
   sourceUrl: string;
   publicUrl: string;
-  migrationMode?: 'full' | 'delta';
   bynderId?: string;
   errorMessage?: string;
   metadata: Record<string, string>;
@@ -92,16 +91,11 @@ async function processAsset(creativeDriveAssetId: string): Promise<void> {
       throw new Error(`Asset record not found: ${creativeDriveAssetId}`);
     }
 
-    // In delta mode, skip already processed assets
-    // In full mode, reprocess even if UPLOADED
-    const mode = record.migrationMode || 'delta';
-    if (record.status !== 'PENDING' && mode === 'delta') {
-      console.log(`Asset ${creativeDriveAssetId} is already processed (status: ${record.status})`);
+    if (record.status !== 'PENDING') {
+      console.log(
+        `Skipping asset ${creativeDriveAssetId} (status: ${record.status}). Only PENDING records are processed.`
+      );
       return;
-    }
-
-    if (record.status === 'UPLOADED' && mode === 'full') {
-      console.log(`Asset ${creativeDriveAssetId} is UPLOADED but mode is 'full', reprocessing...`);
     }
 
     // Step 2: Download from CreativeDrive and upload directly to Bynder
