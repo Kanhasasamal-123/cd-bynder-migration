@@ -62,6 +62,14 @@ async function updateAssetStatus(
     ':updatedAt': new Date().toISOString(),
   };
 
+  // Set expiration to 4 hours from now for UPLOADED items (TTL cleanup)
+  if (status === 'UPLOADED') {
+    const fourHoursFromNow = Math.floor(Date.now() / 1000) + (4 * 60 * 60);
+    updateExpressions.push('#expiresAt = :expiresAt');
+    expressionAttributeNames['#expiresAt'] = 'expiresAt';
+    expressionAttributeValues[':expiresAt'] = fourHoursFromNow;
+  }
+
   Object.entries(updates).forEach(([key, value], index) => {
     const attrName = `#attr${index}`;
     const attrValue = `:val${index}`;
