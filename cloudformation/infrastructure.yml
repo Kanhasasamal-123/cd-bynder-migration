@@ -96,9 +96,6 @@ Resources:
             ProjectionType: ALL
       StreamSpecification:
         StreamViewType: NEW_IMAGE
-      TimeToLiveSpecification:
-        AttributeName: expiresAt
-        Enabled: true
       Tags:
         - Key: Name
           Value: Migration Tracker Table

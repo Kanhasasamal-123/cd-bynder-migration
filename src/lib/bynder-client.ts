@@ -146,6 +146,7 @@ export class BynderClient {
     this.mapFieldToPayload(metapropertiesPayload, 'Product Image', 'Asset_Subtype');
     this.mapFieldToPayload(metapropertiesPayload, 'Image', 'Asset_Type');
     this.mapFieldToPayload(metapropertiesPayload, 'Ecom PDP', 'Program');
+    this.mapFieldToPayload(metapropertiesPayload, 'In Progress', 'Status');
 
     return metapropertiesPayload;
   }
