@@ -50,9 +50,11 @@ export class MigrationService {
       throw new Error('Style number and color code are required');
     }
 
-    existingBynderId = await this.bynderClient.findMediaByFilename(
-      asset.metadata?.style_number, 
-      asset.metadata?.color_code);
+    existingBynderId = await this.bynderClient.findMedia(
+      asset.metadata?.style_number,
+      asset.metadata?.color_code,
+      asset.metadata?.angle_code
+    );
     if (existingBynderId) {
       onProgress?.({
         stage: 'update',

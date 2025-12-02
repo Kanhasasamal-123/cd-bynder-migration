@@ -8,11 +8,12 @@ describe('MigrationService', () => {
     metadata: {
       style_number: 'ST123',
       color_code: 'CC123',
+      angle_code: 'FRONT',
     },
   };
 
   function createService(overrides?: {
-    findMediaByFilename?: jest.Mock;
+    findMedia?: jest.Mock;
     uploadFile?: jest.Mock;
     downloadAsset?: jest.Mock;
   }) {
@@ -21,8 +22,7 @@ describe('MigrationService', () => {
     };
 
     const bynderClient = {
-      findMediaByFilename:
-        overrides?.findMediaByFilename || jest.fn().mockResolvedValue(null),
+      findMedia: overrides?.findMedia || jest.fn().mockResolvedValue(null),
       uploadFile: overrides?.uploadFile || jest.fn().mockResolvedValue('bynder-123'),
     };
 
@@ -44,9 +44,10 @@ describe('MigrationService', () => {
       onProgress: progressSpy,
     });
 
-    expect(bynderClient.findMediaByFilename).toHaveBeenCalledWith(
+    expect(bynderClient.findMedia).toHaveBeenCalledWith(
       baseAsset.metadata!.style_number,
-      baseAsset.metadata!.color_code
+      baseAsset.metadata!.color_code,
+      baseAsset.metadata!.angle_code
     );
     expect(creativeDriveClient.downloadAsset).toHaveBeenCalledWith(baseAsset.publicUrl);
     expect(bynderClient.uploadFile).toHaveBeenCalledWith(
@@ -61,7 +62,7 @@ describe('MigrationService', () => {
 
   it('creates a new version when Bynder asset already exists', async () => {
     const { service, creativeDriveClient, bynderClient } = createService({
-      findMediaByFilename: jest.fn().mockResolvedValue('existing-bynder-id'),
+      findMedia: jest.fn().mockResolvedValue('existing-bynder-id'),
     });
 
     const progressSpy = jest.fn();
@@ -69,9 +70,10 @@ describe('MigrationService', () => {
       onProgress: progressSpy,
     });
 
-    expect(bynderClient.findMediaByFilename).toHaveBeenCalledWith(
+    expect(bynderClient.findMedia).toHaveBeenCalledWith(
       baseAsset.metadata!.style_number,
-      baseAsset.metadata!.color_code
+      baseAsset.metadata!.color_code,
+      baseAsset.metadata!.angle_code
     );
     expect(creativeDriveClient.downloadAsset).toHaveBeenCalledWith(baseAsset.publicUrl);
     expect(bynderClient.uploadFile).toHaveBeenCalledWith(

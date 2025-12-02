@@ -388,17 +388,23 @@ export class BynderClient {
     return bynderId;
   }
 
-  async findMediaByFilename(styleNumber: string, colorCode: string): Promise<string | null> {
+  async findMedia(styleNumber: string, colorCode: string, angleCode?: string): Promise<string | null> {
     const accessToken = await this.getAccessToken();
     const authHeader = { Authorization: `Bearer ${accessToken}` };
 
+    const params: Record<string, string | number> = {
+      property_Style_Number: styleNumber,
+      property_RLM_NRF_Color_Code: colorCode,
+      limit: 1,
+    };
+
+    if (angleCode) {
+      params.property_Ecom_Angle_Code = angleCode;
+    }
+
     const response = await axios.get(`${this.credentials.apiBaseUrl}/api/v4/media/`, {
       headers: authHeader,
-      params: {
-        property_Style_Number: styleNumber,
-        property_RLM_NRF_Color_Code: colorCode,
-        limit: 1,
-      },
+      params,
     });
 
     const data = response.data;
