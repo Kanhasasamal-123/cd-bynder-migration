@@ -148,6 +148,10 @@ export class BynderClient {
     this.mapFieldToPayload(metapropertiesPayload, 'Ecom PDP', 'Program');
     this.mapFieldToPayload(metapropertiesPayload, 'In Progress', 'Status');
 
+    //Added by Sunil for Indexed Products
+    const indexedProductString = assetMetadata['style_number'] + '-' + assetMetadata['color_code'];
+    this.mapFieldToPayload(metapropertiesPayload, indexedProductString, 'Indexed_Products');
+
     return metapropertiesPayload;
   }
 

@@ -163,6 +163,7 @@ describe('AssetMigrationProcessorLambda', () => {
         'property.asset_type': { id: 'ASSETTYPE001', name: 'Asset_Type' },
         'property.program': { id: 'PROGRAM001', name: 'Program' },
         'property.status': { id: 'STATUS001', name: 'Status' },
+        'property.indexed_products': { id: 'STYLE001-COLOR001', name: 'Indexed_Products' },
       },
     });
 
@@ -192,6 +193,7 @@ describe('AssetMigrationProcessorLambda', () => {
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Type
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Program
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Status
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Indexed_Products
 
     // Mock Bynder save media
     mockAxiosPost.mockResolvedValueOnce({
@@ -322,6 +324,7 @@ describe('AssetMigrationProcessorLambda', () => {
         'property.asset_type': { id: 'ASSETTYPE001', name: 'Asset_Type' },
         'property.program': { id: 'PROGRAM001', name: 'Program' },
         'property.status': { id: 'STATUS001', name: 'Status' },
+        'property.indexed_products': { id: 'STYLE001-COLOR001', name: 'Indexed_Products' },
       },
     });
 
@@ -349,6 +352,7 @@ describe('AssetMigrationProcessorLambda', () => {
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Type
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Program
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Status
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Indexed_Products
 
     // Mock Bynder save media (new version)
     mockAxiosPost.mockResolvedValueOnce({
@@ -567,6 +571,7 @@ describe('AssetMigrationProcessorLambda', () => {
         'property.asset_type': { id: 'ASSETTYPE001', name: 'Asset_Type' },
         'property.program': { id: 'PROGRAM001', name: 'Program' },
         'property.status': { id: 'STATUS001', name: 'Status' },
+        'property.indexed_products': { id: 'STYLE001-COLOR001', name: 'Indexed_Products' },
       },
     });
 
@@ -594,6 +599,7 @@ describe('AssetMigrationProcessorLambda', () => {
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Type
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Program
     mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Status
+    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Indexed_Products
 
     // Mock Bynder save media
     mockAxiosPost.mockResolvedValueOnce({
