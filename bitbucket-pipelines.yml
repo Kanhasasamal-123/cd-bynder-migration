@@ -127,9 +127,9 @@ pipelines:
               - full
           - name: MAX_ASSETS
             default: "10"
-          - name: DIVISION_IDS
+          - name: DIVISION_ID
             default: ""
-          - name: ASSET_IDS
+          - name: ASSET_ID
             default: ""
           - name: SYNC_LAST_DAYS
             default: ""
@@ -162,22 +162,20 @@ pipelines:
             # Build payload with optional filters
             - export PAYLOAD="{\"maxAssets\":$MAX_ASSETS,\"mode\":\"$MODE\""
 
-            # Require division IDs
+            # Require division ID
             - |
-              if [ -z "$DIVISION_IDS" ]; then
-                echo "❌ DIVISION_IDS is required (comma separated list of CreativeDrive division IDs)"
+              if [ -z "$DIVISION_ID" ]; then
+                echo "❌ DIVISION_ID is required (CreativeDrive division ID)"
                 exit 1
               fi
-              echo "Division IDs: $DIVISION_IDS"
-              DIVISION_ARRAY=$(echo "$DIVISION_IDS" | jq -R 'split(",") | map(gsub("^\\s+|\\s+$";""))')
-              PAYLOAD="$PAYLOAD,\"divisionIds\":$DIVISION_ARRAY"
+              echo "Division ID: $DIVISION_ID"
+              PAYLOAD="$PAYLOAD,\"divisionId\":\"$DIVISION_ID\""
 
-            # Add asset IDs filter if provided
+            # Add asset ID filter if provided
             - |
-              if [ -n "$ASSET_IDS" ]; then
-                echo "Asset IDs: $ASSET_IDS"
-                ASSET_ARRAY=$(echo "$ASSET_IDS" | jq -R 'split(",") | map(gsub("^\\s+|\\s+$";""))')
-                PAYLOAD="$PAYLOAD,\"assetIds\":$ASSET_ARRAY"
+              if [ -n "$ASSET_ID" ]; then
+                echo "Asset ID: $ASSET_ID"
+                PAYLOAD="$PAYLOAD,\"assetId\":\"$ASSET_ID\""
               fi
 
             # Add syncLastDays if provided

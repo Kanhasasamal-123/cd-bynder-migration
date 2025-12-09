@@ -163,72 +163,7 @@ describe('CreativeDriveIngestLambda', () => {
     expect(body.dryRun).toBe(false);
   });
 
-  it('should ingest assets for multiple division IDs', async () => {
-    mockAxiosPost
-      .mockResolvedValueOnce({
-        data: {
-          data: [
-            {
-              type: 'asset',
-              attributes: {
-                id: '100',
-                original_filename: 'division45-file.tif',
-                original_filesize: 100,
-                extension: 'tif',
-                folder_id: '200',
-                division_id: '45',
-                meta: {
-                  image_origin: 'https://example.com/45.tif',
-                },
-              },
-            },
-          ],
-          meta: { total: 1 },
-        },
-      })
-      .mockResolvedValueOnce({
-        data: {
-          data: [
-            {
-              type: 'asset',
-              attributes: {
-                id: '101',
-                original_filename: 'division46-file.tif',
-                original_filesize: 100,
-                extension: 'tif',
-                folder_id: '201',
-                division_id: '46',
-                meta: {
-                  image_origin: 'https://example.com/46.tif',
-                },
-              },
-            },
-          ],
-          meta: { total: 1 },
-        },
-      });
-
-    mockAxiosGet
-      .mockResolvedValueOnce({ data: { data: [] } })
-      .mockResolvedValueOnce({ data: { data: [] } });
-
-    const result = await handler(
-      { maxAssets: 10, divisionIds: ['45', '46'] },
-      {} as any,
-      {} as any
-    );
-
-    expect(result.statusCode).toBe(200);
-    expect(JSON.parse(result.body)).toMatchObject({
-      message: 'Ingestion completed successfully',
-      totalAssetsIngested: 2,
-      dryRun: false,
-    });
-    expect(mockAxiosPost).toHaveBeenCalledTimes(2);
-    expect(mockDynamoSend).toHaveBeenCalledTimes(4);
-  });
-
-  it('should filter by asset IDs', async () => {
+  it('should search by specific asset ID using query parameter', async () => {
     mockAxiosPost.mockResolvedValueOnce({
       data: {
         data: [
@@ -246,29 +181,15 @@ describe('CreativeDriveIngestLambda', () => {
               },
             },
           },
-          {
-            type: 'asset',
-            attributes: {
-              id: '595168',
-              original_filename: 'test-image-2.tif',
-              original_filesize: 3570356,
-              extension: 'tif',
-              folder_id: '104849',
-              division_id: '45',
-              meta: {
-                image_origin: 'https://cdn.example.com/public/test2.tif',
-              },
-            },
-          },
         ],
-        meta: { total: 2 },
+        meta: { total: 1 },
       },
     });
 
     mockAxiosGet.mockResolvedValueOnce({ data: { data: [] } });
 
     const result = await handler(
-      { maxAssets: 10, divisionId: '45', assetIds: ['595167'] },
+      { divisionId: '45', assetId: '595167' },
       {} as any,
       {} as any
     );
@@ -279,6 +200,12 @@ describe('CreativeDriveIngestLambda', () => {
       totalAssetsIngested: 1,
       dryRun: false,
     });
+    // Verify search was called with query parameter
+    expect(mockAxiosPost).toHaveBeenCalledWith(
+      expect.stringContaining('/search'),
+      expect.objectContaining({ query: '595167' }),
+      expect.any(Object)
+    );
     expect(mockDynamoSend).toHaveBeenCalledTimes(2);
   });
 

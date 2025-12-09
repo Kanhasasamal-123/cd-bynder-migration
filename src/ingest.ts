@@ -30,9 +30,8 @@ interface Asset {
 
 interface IngestEvent {
   maxAssets?: number;
-  divisionId?: string;
-  divisionIds?: string[];
-  assetIds?: string[];
+  divisionId: string;
+  assetId?: string;
   mode?: 'full' | 'delta';
   syncLastDays?: number;
   dryRun?: boolean;
@@ -81,22 +80,19 @@ export const handler: Handler = async (event: IngestEvent) => {
 
     // Get configuration from event
     const maxAssets = event.maxAssets || Infinity;
-    const assetIdFilter = event.assetIds;
-    const divisionIdsInput = event.divisionIds ?? (event.divisionId ? [event.divisionId] : []);
+    const assetId = event.assetId?.trim();
+    const divisionId = event.divisionId?.trim();
     const mode = event.mode || 'delta';
     const syncLastDays = event.syncLastDays;
     const isDryRun = event.dryRun === true;
 
-    const normalizedDivisionIds = Array.from(
-      new Set(
-        divisionIdsInput
-          .map((id) => (id ?? '').toString().trim())
-          .filter((id) => id.length > 0)
-      )
-    );
+    if (!divisionId) {
+      throw new Error('divisionId must be provided');
+    }
 
-    if (normalizedDivisionIds.length === 0) {
-      throw new Error('divisionId or divisionIds must be provided');
+    const numericDivisionId = Number(divisionId);
+    if (isNaN(numericDivisionId)) {
+      throw new Error(`Invalid divisionId: ${divisionId}`);
     }
 
     const syncWindowMinutes =
@@ -104,189 +100,154 @@ export const handler: Handler = async (event: IngestEvent) => {
     const dateRange = calculateDateRange(syncWindowMinutes);
 
     console.log(`Migration mode: ${mode}${isDryRun ? ' (dry-run)' : ''}`);
-    console.log(`Max assets to ingest: ${maxAssets === Infinity ? 'unlimited' : maxAssets}`);
+    
+    if (assetId) {
+      console.log(`Searching for asset ID: ${assetId}`);
+    } else {
+      console.log(`Max assets to ingest: ${maxAssets === Infinity ? 'unlimited' : maxAssets}`);
+    }
+    
     if (syncLastDays && syncLastDays > 0) {
       console.log(`Limiting to the last ${syncLastDays} day(s)`, dateRange);
-    } else {
-      console.log('Sync window not provided; ingesting full available history');
-    }
+    } 
 
-    if (assetIdFilter) {
-      console.log(`Filtering by asset IDs: ${assetIdFilter.join(', ')}`);
-    }
-
-    // Track which filtered asset IDs still need to be found
-    const remainingAssetIds = assetIdFilter ? new Set(assetIdFilter) : null;
+    console.log(`Processing division ID: ${divisionId}`);
 
     let totalAssetsIngested = 0;
-    let limitReached = false;
     const failures: IngestionFailure[] = [];
+    let limitReached = false;
     let consecutiveErrors = 0;
     const maxConsecutiveErrors = 10;
 
-    for (const rawDivisionId of normalizedDivisionIds) {
-      if (limitReached) break;
+    // When searching for a specific assetId, we don't paginate - just one request
+    const pageSize = assetId ? 10 : 50;
+    let offset = 0;
+    let hasMore = true;
 
-      const numericDivisionId = Number(rawDivisionId);
-      if (Number.isNaN(numericDivisionId)) {
-        console.warn(`Skipping division (invalid ID: ${rawDivisionId})`);
-        continue;
-      }
+    while (hasMore && !limitReached) {
+      try {
+        const { assets: assetsWithUrls = [], total } = await client.searchAssets({
+          divisions: [numericDivisionId],
+          folderId: '',
+          dateRange,
+          query: assetId,
+          options: {
+            limit: pageSize,
+            offset,
+          },
+        });
 
-      console.log(`Processing division ID: ${rawDivisionId}`);
-
-      let offset = 0;
-      const pageSize = 50;
-      let hasMore = true;
-
-      while (hasMore && !limitReached) {
-        try {
-          const { assets: assetsWithUrls = [], total } = await client.searchAssets({
-            divisions: [numericDivisionId],
-            folderId: '',
-            dateRange,
-            options: {
-              limit: pageSize,
-              offset,
-            },
-          });
-
+        if (!assetId) {
           console.log(
-            `Fetched ${assetsWithUrls.length} assets from division ${rawDivisionId} (offset: ${offset}, total: ${total})`
+            `Fetched ${assetsWithUrls.length} assets (offset: ${offset}, total: ${total})`
           );
+        }
 
-          if (assetsWithUrls.length === 0) {
-            hasMore = false;
+        if (assetsWithUrls.length === 0) {
+          if (assetId) {
+            console.warn(`Asset ID ${assetId} not found in search results`);
+          }
+          hasMore = false;
+          continue;
+        }
+
+        for (const assetWithUrl of assetsWithUrls) {
+          // For specific assetId search, ignore maxAssets limit
+          if (!assetId && totalAssetsIngested >= maxAssets) {
+            limitReached = true;
+            console.log(`Reached max assets limit of ${maxAssets}`);
             break;
           }
 
-          for (const assetWithUrl of assetsWithUrls) {
-            if (totalAssetsIngested >= maxAssets) {
-              limitReached = true;
-              console.log(`Reached max assets limit of ${maxAssets}`);
-              break;
-            }
-
-            if (assetIdFilter && !assetIdFilter.includes(assetWithUrl.attributes.id)) {
-              console.log(`Skipping asset ${assetWithUrl.attributes.id} (not in filter)`);
+          try {
+            if (isDryRun) {
+              console.log(
+                `[DRY-RUN] Would ingest asset ${assetWithUrl.attributes.id} (${assetWithUrl.attributes.original_filename})`
+              );
+              totalAssetsIngested++;
               continue;
             }
 
-            try {
-              if (isDryRun) {
-                console.log(
-                  `[DRY-RUN] Would ingest asset ${assetWithUrl.attributes.id} (${assetWithUrl.attributes.original_filename})`
-                );
-                totalAssetsIngested++;
-                if (remainingAssetIds) {
-                  remainingAssetIds.delete(assetWithUrl.attributes.id);
-                  if (remainingAssetIds.size === 0) {
-                    limitReached = true;
-                    console.log(
-                      `All ${assetIdFilter?.length} filtered asset(s) have been processed in dry-run. Stopping.`
-                    );
-                    break;
-                  }
-                }
-                continue;
-              }
+            console.log(`Fetching metadata for asset: ${assetWithUrl.attributes.id}`);
+            const metadata = await client.getAssetMetadata(assetWithUrl.attributes.id);
 
-              console.log(`Fetching metadata for asset: ${assetWithUrl.attributes.id}`);
-              const metadata = await client.getAssetMetadata(assetWithUrl.attributes.id);
-
-              const asset: Asset = {
-                type: 'asset',
-                attributes: {
-                  id: assetWithUrl.attributes.id,
-                  original_filename: assetWithUrl.attributes.original_filename,
-                  original_filesize: assetWithUrl.attributes.original_filesize,
-                  extension: assetWithUrl.attributes.extension,
-                  ts_folder_id: assetWithUrl.attributes.folder_id || '',
-                  division_id: assetWithUrl.attributes.division_id || rawDivisionId,
-                  url: '',
-                  path: '',
-                  filename: assetWithUrl.attributes.original_filename,
-                },
-              };
-
-              const recordInserted = await writeAssetToDynamoDB(
-                asset,
-                metadata,
-                assetWithUrl.attributes.meta?.image_origin,
-                mode
-              );
-
-              if (!recordInserted) {
-                if (remainingAssetIds) {
-                  remainingAssetIds.delete(assetWithUrl.attributes.id);
-                  if (remainingAssetIds.size === 0) {
-                    limitReached = true;
-                    console.log(
-                      `All ${assetIdFilter?.length} filtered asset(s) have already been processed. Stopping.`
-                    );
-                    break;
-                  }
-                }
-                continue;
-              }
-
-              totalAssetsIngested++;
-              consecutiveErrors = 0;
-
-              console.log(
-                `Ingested asset: ${assetWithUrl.attributes.original_filename} (${totalAssetsIngested}/${
-                  maxAssets === Infinity ? '∞' : maxAssets
-                })`
-              );
-
-              if (remainingAssetIds) {
-                remainingAssetIds.delete(assetWithUrl.attributes.id);
-                if (remainingAssetIds.size === 0) {
-                  limitReached = true;
-                  console.log(
-                    `All ${assetIdFilter?.length} filtered asset(s) have been ingested. Stopping.`
-                  );
-                  break;
-                }
-              }
-            } catch (error) {
-              const errorMsg =
-                error instanceof Error ? error.message : 'Unknown error processing asset';
-              console.error(
-                `Failed to process asset ${assetWithUrl.attributes.id} (${assetWithUrl.attributes.original_filename}): ${errorMsg}`
-              );
-              failures.push({
-                assetId: assetWithUrl.attributes.id,
+            const asset: Asset = {
+              type: 'asset',
+              attributes: {
+                id: assetWithUrl.attributes.id,
+                original_filename: assetWithUrl.attributes.original_filename,
+                original_filesize: assetWithUrl.attributes.original_filesize,
+                extension: assetWithUrl.attributes.extension,
+                ts_folder_id: assetWithUrl.attributes.folder_id || '',
+                division_id: assetWithUrl.attributes.division_id || divisionId,
+                url: '',
+                path: '',
                 filename: assetWithUrl.attributes.original_filename,
-                divisionId: rawDivisionId,
-                error: errorMsg,
-                stage: errorMsg.includes('metadata') ? 'fetch_metadata' : 'write_dynamodb',
-              });
+              },
+            };
 
-              consecutiveErrors++;
-              if (consecutiveErrors >= maxConsecutiveErrors) {
-                console.error(
-                  `Reached ${maxConsecutiveErrors} consecutive errors while processing assets. Halting ingestion.`
-                );
-                limitReached = true;
-                break;
-              }
+            const recordInserted = await writeAssetToDynamoDB(
+              asset,
+              metadata,
+              assetWithUrl.attributes.meta?.image_origin,
+              mode
+            );
+
+            if (!recordInserted) {
+              continue;
+            }
+
+            totalAssetsIngested++;
+            consecutiveErrors = 0;
+
+            const progress = assetId 
+              ? '' 
+              : ` (${totalAssetsIngested}/${maxAssets === Infinity ? '∞' : maxAssets})`;
+            console.log(`Ingested asset: ${assetWithUrl.attributes.original_filename}${progress}`);
+          } catch (error) {
+            const errorMsg =
+              error instanceof Error ? error.message : 'Unknown error processing asset';
+            console.error(
+              `Failed to process asset ${assetWithUrl.attributes.id} (${assetWithUrl.attributes.original_filename}): ${errorMsg}`
+            );
+            failures.push({
+              assetId: assetWithUrl.attributes.id,
+              filename: assetWithUrl.attributes.original_filename,
+              divisionId,
+              error: errorMsg,
+              stage: errorMsg.includes('metadata') ? 'fetch_metadata' : 'write_dynamodb',
+            });
+
+            consecutiveErrors++;
+            if (consecutiveErrors >= maxConsecutiveErrors) {
+              console.error(
+                `Reached ${maxConsecutiveErrors} consecutive errors while processing assets. Halting ingestion.`
+              );
+              limitReached = true;
+              break;
             }
           }
+        }
 
+        // For specific assetId, we're done after first batch (no pagination needed)
+        if (assetId) {
+          hasMore = false;
+        } else {
           offset += pageSize;
           hasMore = offset < total;
-        } catch (error) {
-          const errorMsg =
-            error instanceof Error ? error.message : 'Unknown error fetching assets';
-          console.error(`Failed to fetch assets from division ${rawDivisionId}: ${errorMsg}`);
-          failures.push({
-            divisionId: rawDivisionId,
-            error: errorMsg,
-            stage: 'fetch_assets',
-          });
-          break;
         }
+      } catch (error) {
+        const errorMsg =
+          error instanceof Error ? error.message : 'Unknown error fetching assets';
+        const context = assetId ? `asset ${assetId}` : `division ${divisionId}`;
+        console.error(`Failed to fetch assets from ${context}: ${errorMsg}`);
+        failures.push({
+          assetId: assetId || undefined,
+          divisionId,
+          error: errorMsg,
+          stage: 'fetch_assets',
+        });
+        hasMore = false;
       }
     }
 
@@ -302,12 +263,6 @@ export const handler: Handler = async (event: IngestEvent) => {
           console.warn(`     Division: ${failure.divisionId}`);
         }
       });
-    }
-
-    // Log warning if not all filtered asset IDs were found
-    if (remainingAssetIds && remainingAssetIds.size > 0) {
-      console.warn(`\n⚠️  Warning: ${remainingAssetIds.size} filtered asset ID(s) were not found:`);
-      console.warn(`  ${Array.from(remainingAssetIds).join(', ')}`);
     }
 
     const result = {
@@ -329,10 +284,6 @@ export const handler: Handler = async (event: IngestEvent) => {
                 filename: f.filename,
                 divisionId: f.divisionId,
               }))
-            : undefined,
-        unfoundAssetIds:
-          remainingAssetIds && remainingAssetIds.size > 0
-            ? Array.from(remainingAssetIds)
             : undefined,
       }),
     };
