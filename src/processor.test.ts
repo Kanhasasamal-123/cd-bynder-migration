@@ -136,7 +136,7 @@ describe('AssetMigrationProcessorLambda', () => {
       data: { itemsDone: ['test-import-id'] },
     });
 
-    // Mock Bynder get metaproperties
+    // Mock Bynder get metaproperties - includes all fields used in buildMetapropertiesPayload
     mockAxiosGet.mockResolvedValueOnce({
       data: {
         'property.brand': { id: 'ABC123', name: 'Brand' },
@@ -145,17 +145,26 @@ describe('AssetMigrationProcessorLambda', () => {
         'property.angle_code': { id: 'ANGLE001', name: 'Ecom_Angle_Code' },
         'property.angle_name': { id: 'ANGLENAME001', name: 'Angle_Name' },
         'property.date_created': { id: 'DATE001', name: 'Date_Created' },
-        'property.ratio': { id: 'RATIO001', name: 'Ratio' },
+        'property.shot_type': { id: 'SHOTTYPE001', name: 'Shot_Type' },
+        'property.shotlist_name': { id: 'SHOTLIST001', name: 'Shotlist_Name_Setlist_Name' },
+        'property.photographer': { id: 'PHOTO001', name: 'Photographer' },
         'property.model': { id: 'MODEL002', name: 'Model' },
-        'property.recognized_faces': { id: 'FACES001', name: 'Recognized_Faces' },
+        'property.stylist': { id: 'STYLIST001', name: 'Stylist' },
+        'property.art_director': { id: 'ARTDIR001', name: 'Art_Director' },
+        'property.image_width': { id: 'WIDTH001', name: 'Image_Width' },
+        'property.image_height': { id: 'HEIGHT001', name: 'Image_Height' },
+        'property.hair_makeup': { id: 'HAIR001', name: 'Hair_Makeup' },
+        'property.location': { id: 'LOCATION001', name: 'Location' },
+        'property.digital_tech': { id: 'DIGTECH001', name: 'Digital_Tech' },
+        'property.photographer_assistant': { id: 'PHOTOASST001', name: 'Photographer_Assistant' },
+        'property.stylist_assistant': { id: 'STYLEASST001', name: 'Stylist_Assistant' },
+        'property.ratio': { id: 'RATIO001', name: 'Ratio' },
         'property.model_exif': { id: 'MODEL001', name: 'Exif_Field_Model' },
         'property.exposure': { id: 'EXPOSURE001', name: 'Exposure_Time' },
         'property.fnumber': { id: 'FNUMBER001', name: 'F_Number' },
         'property.shutter': { id: 'SHUTTER001', name: 'Shutter_Speed' },
         'property.aperture': { id: 'APERTURE001', name: 'Aperture_Value' },
         'property.metering': { id: 'METERING001', name: 'Metering_Mode' },
-        'property.image_width': { id: 'WIDTH001', name: 'Image_Width' },
-        'property.image_height': { id: 'HEIGHT001', name: 'Image_Height' },
         'property.season': { id: 'SEASON001', name: 'Season' },
         'property.year': { id: 'YEAR001', name: 'Year' },
         'property.asset_purpose': { id: 'ASSETPURPOSE001', name: 'Asset_Purpose' },
@@ -163,37 +172,10 @@ describe('AssetMigrationProcessorLambda', () => {
         'property.asset_type': { id: 'ASSETTYPE001', name: 'Asset_Type' },
         'property.program': { id: 'PROGRAM001', name: 'Program' },
         'property.status': { id: 'STATUS001', name: 'Status' },
-        'property.indexed_products': { id: 'STYLE001-COLOR001', name: 'Indexed_Products' },
+        'property.recognized_faces': { id: 'FACES001', name: 'Recognized_Faces' },
+        'property.indexed_products': { id: 'INDEXED001', name: 'Indexed_Products' },
       },
     });
-
-    // Mock Bynder metaproperty options GET requests (for each field being mapped)
-    // These are called by mapFieldToPayload for each metadata field
-    // Order must match the order in bynder-client.ts mapFieldToPayload calls
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Style_Number
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // RLM_NRF_Color_Code
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Ecom_Angle_Code
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Angle_Name
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Date_Created (if date_created exists)
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Model
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Recognized_Faces
-    mockAxiosGet.mockResolvedValueOnce({ data: [{ id: 'ratio-opt-1' }] }); // Ratio (26:35)
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Exif_Field_Model
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Exposure_Time
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // F_Number
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Shutter_Speed
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Aperture_Value
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Metering_Mode
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Image_Width
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Image_Height
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Season
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Year
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Purpose
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Subtype
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Type
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Program
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Status
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Indexed_Products
 
     // Mock Bynder save media
     mockAxiosPost.mockResolvedValueOnce({
@@ -297,7 +279,7 @@ describe('AssetMigrationProcessorLambda', () => {
       data: { itemsDone: ['test-import-id'] },
     });
 
-    // Mock Bynder get metaproperties
+    // Mock Bynder get metaproperties - includes all fields used in buildMetapropertiesPayload
     mockAxiosGet.mockResolvedValueOnce({
       data: {
         'property.brand': { id: 'ABC123', name: 'Brand' },
@@ -306,17 +288,26 @@ describe('AssetMigrationProcessorLambda', () => {
         'property.angle_code': { id: 'ANGLE001', name: 'Ecom_Angle_Code' },
         'property.angle_name': { id: 'ANGLENAME001', name: 'Angle_Name' },
         'property.date_created': { id: 'DATE001', name: 'Date_Created' },
-        'property.ratio': { id: 'RATIO001', name: 'Ratio' },
+        'property.shot_type': { id: 'SHOTTYPE001', name: 'Shot_Type' },
+        'property.shotlist_name': { id: 'SHOTLIST001', name: 'Shotlist_Name_Setlist_Name' },
+        'property.photographer': { id: 'PHOTO001', name: 'Photographer' },
         'property.model': { id: 'MODEL002', name: 'Model' },
-        'property.recognized_faces': { id: 'FACES001', name: 'Recognized_Faces' },
+        'property.stylist': { id: 'STYLIST001', name: 'Stylist' },
+        'property.art_director': { id: 'ARTDIR001', name: 'Art_Director' },
+        'property.image_width': { id: 'WIDTH001', name: 'Image_Width' },
+        'property.image_height': { id: 'HEIGHT001', name: 'Image_Height' },
+        'property.hair_makeup': { id: 'HAIR001', name: 'Hair_Makeup' },
+        'property.location': { id: 'LOCATION001', name: 'Location' },
+        'property.digital_tech': { id: 'DIGTECH001', name: 'Digital_Tech' },
+        'property.photographer_assistant': { id: 'PHOTOASST001', name: 'Photographer_Assistant' },
+        'property.stylist_assistant': { id: 'STYLEASST001', name: 'Stylist_Assistant' },
+        'property.ratio': { id: 'RATIO001', name: 'Ratio' },
         'property.model_exif': { id: 'MODEL001', name: 'Exif_Field_Model' },
         'property.exposure': { id: 'EXPOSURE001', name: 'Exposure_Time' },
         'property.fnumber': { id: 'FNUMBER001', name: 'F_Number' },
         'property.shutter': { id: 'SHUTTER001', name: 'Shutter_Speed' },
         'property.aperture': { id: 'APERTURE001', name: 'Aperture_Value' },
         'property.metering': { id: 'METERING001', name: 'Metering_Mode' },
-        'property.image_width': { id: 'WIDTH001', name: 'Image_Width' },
-        'property.image_height': { id: 'HEIGHT001', name: 'Image_Height' },
         'property.season': { id: 'SEASON001', name: 'Season' },
         'property.year': { id: 'YEAR001', name: 'Year' },
         'property.asset_purpose': { id: 'ASSETPURPOSE001', name: 'Asset_Purpose' },
@@ -324,35 +315,10 @@ describe('AssetMigrationProcessorLambda', () => {
         'property.asset_type': { id: 'ASSETTYPE001', name: 'Asset_Type' },
         'property.program': { id: 'PROGRAM001', name: 'Program' },
         'property.status': { id: 'STATUS001', name: 'Status' },
-        'property.indexed_products': { id: 'STYLE001-COLOR001', name: 'Indexed_Products' },
+        'property.recognized_faces': { id: 'FACES001', name: 'Recognized_Faces' },
+        'property.indexed_products': { id: 'INDEXED001', name: 'Indexed_Products' },
       },
     });
-
-    // Mock Bynder metaproperty options GET requests (match upload flow)
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Style_Number
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // RLM_NRF_Color_Code
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Ecom_Angle_Code
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Angle_Name
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Date_Created
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Model
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Recognized_Faces
-    mockAxiosGet.mockResolvedValueOnce({ data: [{ id: 'ratio-opt-1' }] }); // Ratio
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Exif_Field_Model
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Exposure_Time
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // F_Number
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Shutter_Speed
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Aperture_Value
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Metering_Mode
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Image_Width
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Image_Height
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Season
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Year
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Purpose
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Subtype
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Type
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Program
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Status
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Indexed_Products
 
     // Mock Bynder save media (new version)
     mockAxiosPost.mockResolvedValueOnce({
@@ -544,7 +510,7 @@ describe('AssetMigrationProcessorLambda', () => {
       data: { itemsDone: ['test-import-id'] },
     });
 
-    // Mock Bynder get metaproperties
+    // Mock Bynder get metaproperties - includes all fields used in buildMetapropertiesPayload
     mockAxiosGet.mockResolvedValueOnce({
       data: {
         'property.brand': { id: 'ABC123', name: 'Brand' },
@@ -553,17 +519,26 @@ describe('AssetMigrationProcessorLambda', () => {
         'property.angle_code': { id: 'ANGLE001', name: 'Ecom_Angle_Code' },
         'property.angle_name': { id: 'ANGLENAME001', name: 'Angle_Name' },
         'property.date_created': { id: 'DATE001', name: 'Date_Created' },
-        'property.ratio': { id: 'RATIO001', name: 'Ratio' },
+        'property.shot_type': { id: 'SHOTTYPE001', name: 'Shot_Type' },
+        'property.shotlist_name': { id: 'SHOTLIST001', name: 'Shotlist_Name_Setlist_Name' },
+        'property.photographer': { id: 'PHOTO001', name: 'Photographer' },
         'property.model': { id: 'MODEL002', name: 'Model' },
-        'property.recognized_faces': { id: 'FACES001', name: 'Recognized_Faces' },
+        'property.stylist': { id: 'STYLIST001', name: 'Stylist' },
+        'property.art_director': { id: 'ARTDIR001', name: 'Art_Director' },
+        'property.image_width': { id: 'WIDTH001', name: 'Image_Width' },
+        'property.image_height': { id: 'HEIGHT001', name: 'Image_Height' },
+        'property.hair_makeup': { id: 'HAIR001', name: 'Hair_Makeup' },
+        'property.location': { id: 'LOCATION001', name: 'Location' },
+        'property.digital_tech': { id: 'DIGTECH001', name: 'Digital_Tech' },
+        'property.photographer_assistant': { id: 'PHOTOASST001', name: 'Photographer_Assistant' },
+        'property.stylist_assistant': { id: 'STYLEASST001', name: 'Stylist_Assistant' },
+        'property.ratio': { id: 'RATIO001', name: 'Ratio' },
         'property.model_exif': { id: 'MODEL001', name: 'Exif_Field_Model' },
         'property.exposure': { id: 'EXPOSURE001', name: 'Exposure_Time' },
         'property.fnumber': { id: 'FNUMBER001', name: 'F_Number' },
         'property.shutter': { id: 'SHUTTER001', name: 'Shutter_Speed' },
         'property.aperture': { id: 'APERTURE001', name: 'Aperture_Value' },
         'property.metering': { id: 'METERING001', name: 'Metering_Mode' },
-        'property.image_width': { id: 'WIDTH001', name: 'Image_Width' },
-        'property.image_height': { id: 'HEIGHT001', name: 'Image_Height' },
         'property.season': { id: 'SEASON001', name: 'Season' },
         'property.year': { id: 'YEAR001', name: 'Year' },
         'property.asset_purpose': { id: 'ASSETPURPOSE001', name: 'Asset_Purpose' },
@@ -571,35 +546,10 @@ describe('AssetMigrationProcessorLambda', () => {
         'property.asset_type': { id: 'ASSETTYPE001', name: 'Asset_Type' },
         'property.program': { id: 'PROGRAM001', name: 'Program' },
         'property.status': { id: 'STATUS001', name: 'Status' },
-        'property.indexed_products': { id: 'STYLE001-COLOR001', name: 'Indexed_Products' },
+        'property.recognized_faces': { id: 'FACES001', name: 'Recognized_Faces' },
+        'property.indexed_products': { id: 'INDEXED001', name: 'Indexed_Products' },
       },
     });
-
-    // Mock Bynder metaproperty options GET requests (for each field being mapped)
-    // These are called by mapFieldToPayload for each metadata field
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Style_Number
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // RLM_NRF_Color_Code
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Ecom_Angle_Code
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Angle_Name
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Model
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Recognized_Faces
-    mockAxiosGet.mockResolvedValueOnce({ data: [{ id: 'ratio-opt-1' }] }); // Ratio (26:35)
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Exif_Field_Model
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Exposure_Time
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // F_Number
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Shutter_Speed
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Aperture_Value
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Metering_Mode
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Image_Width
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Image_Height
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Season
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Year
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Purpose
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Subtype
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Asset_Type
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Program
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Status
-    mockAxiosGet.mockResolvedValueOnce({ data: [] }); // Indexed_Products
 
     // Mock Bynder save media
     mockAxiosPost.mockResolvedValueOnce({
