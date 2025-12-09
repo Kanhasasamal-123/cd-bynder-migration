@@ -97,10 +97,6 @@ describe('CreativeDrive to Bynder Integration', () => {
         throw new Error('No subfolders found in CreativeDrive root folder');
       }
 
-      if (!process.env.CD_SUBFOLDER_ID) {
-        throw new Error('CD_SUBFOLDER_ID environment variable is required for this test');
-      }
-
       let offset = 0;
       const limit = 50;
       let hasMore = true;
@@ -114,7 +110,7 @@ describe('CreativeDrive to Bynder Integration', () => {
         try {
           const { assets: assetsWithUrls, total } = await creativeDriveClient.searchAssets({
             divisions: [],
-            folderId: process.env.CD_SUBFOLDER_ID || '',
+            folderId: '',
             dateRange,
             options: {
               limit,

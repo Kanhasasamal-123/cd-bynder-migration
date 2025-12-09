@@ -109,8 +109,24 @@ export class BynderClient {
       this.mapFieldToPayload(metapropertiesPayload, `${normalizedDatePart}T00:00:00Z`, 'Date_Created');
     }
 
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['shot_type'] || '', 'Shot_Type');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['setlist_name'] || '', 'Shotlist_Name_Setlist_Name');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['photographer'] || '', 'Photographer');
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['model_name'] || '', 'Model');
-    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['model_name'] || '', 'Recognized_Faces');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['stylist'] || '', 'Stylist');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['department'] || '', 'Art_Director');
+    
+    if (assetMetadata['system_dimensions']) {
+      const dimensions = assetMetadata['system_dimensions'].split('x');
+      this.mapFieldToPayload(metapropertiesPayload, dimensions[0].trim() || '', 'Image_Width');
+      this.mapFieldToPayload(metapropertiesPayload, dimensions[1].trim() || '', 'Image_Height');
+    }
+
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['hair_makeup'] || '', 'Hair_Makeup');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['shoot_name'] || '', 'Location');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['digital_tech'] || '', 'Digital_Tech');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['photographer_assistant'] || '', 'Photographer_Assistant');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['stylist_assistant'] || '', 'Stylist_Assistant');
 
     this.mapFieldToPayload(metapropertiesPayload, '26:35', 'Ratio');
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['model'] || '', 'Exif_Field_Model');
@@ -119,12 +135,6 @@ export class BynderClient {
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['shutter_speed_value'] || '', 'Shutter_Speed');
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['aperture_value'] || '', 'Aperture_Value');
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['metering_mode'] || '', 'Metering_Mode');
-
-    if (assetMetadata['system_dimensions']) {
-      const dimensions = assetMetadata['system_dimensions'].split('x');
-      this.mapFieldToPayload(metapropertiesPayload, dimensions[0].trim() || '', 'Image_Width');
-      this.mapFieldToPayload(metapropertiesPayload, dimensions[1].trim() || '', 'Image_Height');
-    }
 
     if (assetMetadata['month']) {
       let monthValue = assetMetadata['month'].substring(0, 2);
@@ -147,6 +157,8 @@ export class BynderClient {
     this.mapFieldToPayload(metapropertiesPayload, 'Image', 'Asset_Type');
     this.mapFieldToPayload(metapropertiesPayload, 'Ecom PDP', 'Program');
     this.mapFieldToPayload(metapropertiesPayload, 'In Progress', 'Status');
+
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['model_name'] || '', 'Recognized_Faces');
 
     //Added by Sunil for Indexed Products
     const indexedProductString = assetMetadata['style_number'] + '-' + assetMetadata['color_code'];
