@@ -144,6 +144,7 @@ describe('AssetMigrationProcessorLambda', () => {
         'property.color_code': { id: 'COLOR001', name: 'RLM_NRF_Color_Code' },
         'property.angle_code': { id: 'ANGLE001', name: 'Ecom_Angle_Code' },
         'property.angle_name': { id: 'ANGLENAME001', name: 'Angle_Name' },
+        'property.date_shot': { id: 'DATESHOT001', name: 'Date_Shot' },
         'property.date_created': { id: 'DATE001', name: 'Date_Created' },
         'property.shot_type': { id: 'SHOTTYPE001', name: 'Shot_Type' },
         'property.shotlist_name': { id: 'SHOTLIST001', name: 'Shotlist_Name_Setlist_Name' },
@@ -164,6 +165,7 @@ describe('AssetMigrationProcessorLambda', () => {
         'property.fnumber': { id: 'FNUMBER001', name: 'F_Number' },
         'property.shutter': { id: 'SHUTTER001', name: 'Shutter_Speed' },
         'property.aperture': { id: 'APERTURE001', name: 'Aperture_Value' },
+        'property.max_aperture': { id: 'MAXAPERTURE001', name: 'Max_Aperture_Value' },
         'property.metering': { id: 'METERING001', name: 'Metering_Mode' },
         'property.season': { id: 'SEASON001', name: 'Season' },
         'property.year': { id: 'YEAR001', name: 'Year' },
@@ -173,7 +175,7 @@ describe('AssetMigrationProcessorLambda', () => {
         'property.program': { id: 'PROGRAM001', name: 'Program' },
         'property.status': { id: 'STATUS001', name: 'Status' },
         'property.recognized_faces': { id: 'FACES001', name: 'Recognized_Faces' },
-        'property.indexed_products': { id: 'INDEXED001', name: 'Indexed_Products' },
+        'property.style_number_rlm_code': { id: 'STYLERLM001', name: 'Style_Number_RLM_Code' },
       },
     });
 
@@ -287,6 +289,7 @@ describe('AssetMigrationProcessorLambda', () => {
         'property.color_code': { id: 'COLOR001', name: 'RLM_NRF_Color_Code' },
         'property.angle_code': { id: 'ANGLE001', name: 'Ecom_Angle_Code' },
         'property.angle_name': { id: 'ANGLENAME001', name: 'Angle_Name' },
+        'property.date_shot': { id: 'DATESHOT001', name: 'Date_Shot' },
         'property.date_created': { id: 'DATE001', name: 'Date_Created' },
         'property.shot_type': { id: 'SHOTTYPE001', name: 'Shot_Type' },
         'property.shotlist_name': { id: 'SHOTLIST001', name: 'Shotlist_Name_Setlist_Name' },
@@ -307,6 +310,7 @@ describe('AssetMigrationProcessorLambda', () => {
         'property.fnumber': { id: 'FNUMBER001', name: 'F_Number' },
         'property.shutter': { id: 'SHUTTER001', name: 'Shutter_Speed' },
         'property.aperture': { id: 'APERTURE001', name: 'Aperture_Value' },
+        'property.max_aperture': { id: 'MAXAPERTURE001', name: 'Max_Aperture_Value' },
         'property.metering': { id: 'METERING001', name: 'Metering_Mode' },
         'property.season': { id: 'SEASON001', name: 'Season' },
         'property.year': { id: 'YEAR001', name: 'Year' },
@@ -316,7 +320,7 @@ describe('AssetMigrationProcessorLambda', () => {
         'property.program': { id: 'PROGRAM001', name: 'Program' },
         'property.status': { id: 'STATUS001', name: 'Status' },
         'property.recognized_faces': { id: 'FACES001', name: 'Recognized_Faces' },
-        'property.indexed_products': { id: 'INDEXED001', name: 'Indexed_Products' },
+        'property.style_number_rlm_code': { id: 'STYLERLM001', name: 'Style_Number_RLM_Code' },
       },
     });
 
@@ -518,6 +522,7 @@ describe('AssetMigrationProcessorLambda', () => {
         'property.color_code': { id: 'COLOR001', name: 'RLM_NRF_Color_Code' },
         'property.angle_code': { id: 'ANGLE001', name: 'Ecom_Angle_Code' },
         'property.angle_name': { id: 'ANGLENAME001', name: 'Angle_Name' },
+        'property.date_shot': { id: 'DATESHOT001', name: 'Date_Shot' },
         'property.date_created': { id: 'DATE001', name: 'Date_Created' },
         'property.shot_type': { id: 'SHOTTYPE001', name: 'Shot_Type' },
         'property.shotlist_name': { id: 'SHOTLIST001', name: 'Shotlist_Name_Setlist_Name' },
@@ -538,6 +543,7 @@ describe('AssetMigrationProcessorLambda', () => {
         'property.fnumber': { id: 'FNUMBER001', name: 'F_Number' },
         'property.shutter': { id: 'SHUTTER001', name: 'Shutter_Speed' },
         'property.aperture': { id: 'APERTURE001', name: 'Aperture_Value' },
+        'property.max_aperture': { id: 'MAXAPERTURE001', name: 'Max_Aperture_Value' },
         'property.metering': { id: 'METERING001', name: 'Metering_Mode' },
         'property.season': { id: 'SEASON001', name: 'Season' },
         'property.year': { id: 'YEAR001', name: 'Year' },
@@ -547,7 +553,7 @@ describe('AssetMigrationProcessorLambda', () => {
         'property.program': { id: 'PROGRAM001', name: 'Program' },
         'property.status': { id: 'STATUS001', name: 'Status' },
         'property.recognized_faces': { id: 'FACES001', name: 'Recognized_Faces' },
-        'property.indexed_products': { id: 'INDEXED001', name: 'Indexed_Products' },
+        'property.style_number_rlm_code': { id: 'STYLERLM001', name: 'Style_Number_RLM_Code' },
       },
     });
 

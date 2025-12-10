@@ -103,13 +103,19 @@ export class BynderClient {
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['angle_code'] || '', 'Ecom_Angle_Code');
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['angle_name'] || '', 'Angle_Name');
 
-    if (assetMetadata['date_created'] || assetMetadata['date_shot']) {
-      const datePart = assetMetadata['date_created'] || assetMetadata['date_shot'];
-      const normalizedDatePart = datePart.replace(/:/g, '-');
-      this.mapFieldToPayload(metapropertiesPayload, `${normalizedDatePart}T00:00:00Z`, 'Date_Created');
+    if (assetMetadata['date_shot'] || assetMetadata['date_asset_delivered'] ||assetMetadata['system_uploaded']) {
+      const dateShot = assetMetadata['date_shot'] || assetMetadata['date_asset_delivered'] || assetMetadata['system_uploaded'];
+      const normalizedDateShot = dateShot.replace(/:/g, '-');
+      this.mapFieldToPayload(metapropertiesPayload, `${normalizedDateShot}T00:00:00Z`, 'Date_Shot');
     }
 
-    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['shot_type'] || '', 'Shot_Type');
+    if (assetMetadata['date_created'] || assetMetadata['date_shot']) {
+      const dateCreated = assetMetadata['date_created'] || assetMetadata['date_shot'];
+      const normalizedDateCreated = dateCreated.replace(/:/g, '-');
+      this.mapFieldToPayload(metapropertiesPayload, `${normalizedDateCreated}T00:00:00Z`, 'Date_Created');
+    }
+
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['asset_type'] || '', 'Shot_Type');
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['setlist_name'] || '', 'Shotlist_Name_Setlist_Name');
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['photographer'] || '', 'Photographer');
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['model_name'] || '', 'Model');
@@ -134,6 +140,7 @@ export class BynderClient {
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['f_number'] || '', 'F_Number');
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['shutter_speed_value'] || '', 'Shutter_Speed');
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['aperture_value'] || '', 'Aperture_Value');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['max_aperture_value'] || '', 'Max_Aperture_Value');
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['metering_mode'] || '', 'Metering_Mode');
 
     if (assetMetadata['month']) {
@@ -160,9 +167,8 @@ export class BynderClient {
 
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['model_name'] || '', 'Recognized_Faces');
 
-    //Added by Sunil for Indexed Products
     const indexedProductString = assetMetadata['style_number'] + '-' + assetMetadata['color_code'];
-    this.mapFieldToPayload(metapropertiesPayload, indexedProductString, 'Indexed_Products');
+    this.mapFieldToPayload(metapropertiesPayload, indexedProductString, 'Style_Number_RLM_Code');
 
     return metapropertiesPayload;
   }
@@ -388,6 +394,18 @@ export class BynderClient {
     // The key 'name_field' is the name the API expects for this parameter.
     formData.append('importId', importId);
     formData.append('name', filename);
+
+    if (assetMetadata['date_shot'] || assetMetadata['date_asset_delivered'] ||assetMetadata['system_uploaded']) {
+      const dateShot = assetMetadata['date_shot'] || assetMetadata['date_asset_delivered'] || assetMetadata['system_uploaded'];
+      
+      const normalizedDateShot = dateShot.replace(/:/g, '-');
+      
+      const dateShotTS = new Date(normalizedDateShot);
+      const date2023TS = new Date('2023-01-01');
+      if (dateShotTS.getTime() < date2023TS.getTime()) {
+        formData.append('archiveDate', '2025-12-01T00:00:00Z')
+      }
+    }
 
     for (const [key, value] of Object.entries(metapropertiesPayload)) {
       formData.append(key, value);
