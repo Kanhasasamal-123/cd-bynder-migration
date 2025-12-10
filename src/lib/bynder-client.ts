@@ -106,7 +106,7 @@ export class BynderClient {
     if (assetMetadata['date_shot'] || assetMetadata['date_asset_delivered'] ||assetMetadata['system_uploaded']) {
       const dateShot = assetMetadata['date_shot'] || assetMetadata['date_asset_delivered'] || assetMetadata['system_uploaded'];
       const normalizedDateShot = dateShot.replace(/:/g, '-');
-      this.mapFieldToPayload(metapropertiesPayload, `${normalizedDateShot}T00:00:00Z`, 'Date_Shot');
+      this.mapFieldToPayload(metapropertiesPayload, `${normalizedDateShot}T00:00:00Z`, 'Date_Created');
     }
 
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['asset_type'] || '', 'Shot_Type');
