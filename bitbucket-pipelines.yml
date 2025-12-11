@@ -129,6 +129,8 @@ pipelines:
             default: "10"
           - name: DIVISION_ID
             default: ""
+          - name: FOLDER_ID
+            default: ""
           - name: ASSET_ID
             default: ""
           - name: SYNC_LAST_DAYS
@@ -170,6 +172,13 @@ pipelines:
               fi
               echo "Division ID: $DIVISION_ID"
               PAYLOAD="$PAYLOAD,\"divisionId\":\"$DIVISION_ID\""
+
+            # Add folder ID filter if provided
+            - |
+              if [ -n "$FOLDER_ID" ]; then
+                echo "Folder ID: $FOLDER_ID"
+                PAYLOAD="$PAYLOAD,\"folderId\":\"$FOLDER_ID\""
+              fi
 
             # Add asset ID filter if provided
             - |

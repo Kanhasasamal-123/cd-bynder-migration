@@ -31,6 +31,7 @@ interface Asset {
 interface IngestEvent {
   maxAssets?: number;
   divisionId: string;
+  folderId?: string;
   assetId?: string;
   mode?: 'full' | 'delta';
   syncLastDays?: number;
@@ -82,6 +83,7 @@ export const handler: Handler = async (event: IngestEvent) => {
     const maxAssets = event.maxAssets || Infinity;
     const assetId = event.assetId?.trim();
     const divisionId = event.divisionId?.trim();
+    const folderId = event.folderId?.trim() || '';
     const mode = event.mode || 'delta';
     const syncLastDays = event.syncLastDays;
     const isDryRun = event.dryRun === true;
@@ -109,7 +111,11 @@ export const handler: Handler = async (event: IngestEvent) => {
     
     if (syncLastDays && syncLastDays > 0) {
       console.log(`Limiting to the last ${syncLastDays} day(s)`, dateRange);
-    } 
+    }
+
+    if (folderId) {
+      console.log(`Filtering by folder ID: ${folderId}`);
+    }
 
     console.log(`Processing division ID: ${divisionId}`);
 
@@ -128,7 +134,7 @@ export const handler: Handler = async (event: IngestEvent) => {
       try {
         const { assets: assetsWithUrls = [], total } = await client.searchAssets({
           divisions: [numericDivisionId],
-          folderId: '',
+          folderId,
           dateRange,
           query: assetId,
           options: {
