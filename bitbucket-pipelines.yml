@@ -135,6 +135,10 @@ pipelines:
             default: ""
           - name: SYNC_LAST_DAYS
             default: ""
+          - name: DATE_FROM
+            default: ""
+          - name: DATE_TO
+            default: ""
           - name: DRY_RUN
             default: "false"
             allowed-values:
@@ -192,6 +196,20 @@ pipelines:
               if [ -n "$SYNC_LAST_DAYS" ]; then
                 echo "Syncing last $SYNC_LAST_DAYS day(s)"
                 PAYLOAD="$PAYLOAD,\"syncLastDays\":$SYNC_LAST_DAYS"
+              fi
+
+            # Add dateFrom if provided
+            - |
+              if [ -n "$DATE_FROM" ]; then
+                echo "Date From: $DATE_FROM"
+                PAYLOAD="$PAYLOAD,\"dateFrom\":\"$DATE_FROM\""
+              fi
+
+            # Add dateTo if provided
+            - |
+              if [ -n "$DATE_TO" ]; then
+                echo "Date To: $DATE_TO"
+                PAYLOAD="$PAYLOAD,\"dateTo\":\"$DATE_TO\""
               fi
 
             # Dry run flag
