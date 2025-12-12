@@ -167,10 +167,10 @@ export class BynderClient {
       const normalized_system_uploaded_date_ts = new Date(normalized_system_uploaded_date);
       const archiveDatePeriod = new Date('2022-12-14'); //ArchiveDate timeperiod
       if (normalized_system_uploaded_date_ts.getTime() < archiveDatePeriod.getTime()) {
-        formData.append('archiveDate', '2025-12-15T00:00:00Z')
+        this.mapFieldToPayload(metapropertiesPayload, 'Archived', 'Asset_Status');
       }
     } else {
-      this.mapFieldToPayload(metapropertiesPayload, 'In Progress', 'Status');
+      this.mapFieldToPayload(metapropertiesPayload, 'In Progress', 'Asset_Status');
     }
 
     
