@@ -35,6 +35,8 @@ interface IngestEvent {
   assetId?: string;
   mode?: 'full' | 'delta';
   syncLastDays?: number;
+  dateFrom?: string;
+  dateTo?: string;
   dryRun?: boolean;
 }
 
@@ -86,6 +88,8 @@ export const handler: Handler = async (event: IngestEvent) => {
     const folderId = event.folderId?.trim() || '';
     const mode = event.mode || 'delta';
     const syncLastDays = event.syncLastDays;
+    const dateFrom = event.dateFrom?.trim();
+    const dateTo = event.dateTo?.trim();
     const isDryRun = event.dryRun === true;
 
     if (!divisionId) {
@@ -97,9 +101,38 @@ export const handler: Handler = async (event: IngestEvent) => {
       throw new Error(`Invalid divisionId: ${divisionId}`);
     }
 
-    const syncWindowMinutes =
-      syncLastDays && syncLastDays > 0 ? syncLastDays * 24 * 60 : 52560000;
-    const dateRange = calculateDateRange(syncWindowMinutes);
+    // Validate date range parameters
+    const hasDateRange = dateFrom || dateTo;
+    const hasSyncLastDays = syncLastDays && syncLastDays > 0;
+
+    if (hasDateRange && hasSyncLastDays) {
+      throw new Error('Cannot specify both syncLastDays and dateFrom/dateTo. Use one or the other.');
+    }
+
+    if ((dateFrom && !dateTo) || (!dateFrom && dateTo)) {
+      throw new Error('Both dateFrom and dateTo must be provided together.');
+    }
+
+    // Parse date from DD/MM/YY format to YYYY-MM-DD
+    const parseDateDDMMYY = (dateStr: string): string => {
+      const parts = dateStr.split('/');
+      if (parts.length !== 3) {
+        throw new Error(`Invalid date format: ${dateStr}. Expected DD/MM/YY`);
+      }
+      const [day, month, year] = parts;
+      const fullYear = parseInt(year, 10) < 50 ? `20${year}` : `19${year}`;
+      return `${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    };
+
+    let dateRange;
+    if (dateFrom && dateTo) {
+      const start = parseDateDDMMYY(dateFrom);
+      const end = parseDateDDMMYY(dateTo);
+      dateRange = { start, end };
+    } else {
+      const syncWindowMinutes = hasSyncLastDays ? syncLastDays * 24 * 60 : 52560000;
+      dateRange = calculateDateRange(syncWindowMinutes);
+    }
 
     console.log(`Migration mode: ${mode}${isDryRun ? ' (dry-run)' : ''}`);
     
@@ -109,7 +142,9 @@ export const handler: Handler = async (event: IngestEvent) => {
       console.log(`Max assets to ingest: ${maxAssets === Infinity ? 'unlimited' : maxAssets}`);
     }
     
-    if (syncLastDays && syncLastDays > 0) {
+    if (dateFrom && dateTo) {
+      console.log(`Date range: ${dateFrom} to ${dateTo}`, dateRange);
+    } else if (hasSyncLastDays) {
       console.log(`Limiting to the last ${syncLastDays} day(s)`, dateRange);
     }
 
