@@ -112,7 +112,7 @@ export class BynderClient {
     }
 
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['asset_type'] || '', 'Shot_Type');
-    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['setlist_name'] || '', 'Shotlist_Name_Setlist_Name');
+    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['setlist_name'] || '', 'Shotlist');
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['photographer'] || '', 'Photographer');
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['model_name'] || '', 'Model');
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['stylist'] || '', 'Stylist');
@@ -159,7 +159,21 @@ export class BynderClient {
     this.mapFieldToPayload(metapropertiesPayload, 'Product Image', 'Asset_Subtype');
     this.mapFieldToPayload(metapropertiesPayload, 'Image', 'Asset_Type');
     this.mapFieldToPayload(metapropertiesPayload, 'Ecom PDP', 'Program');
-    this.mapFieldToPayload(metapropertiesPayload, 'In Progress', 'Status');
+
+    // If SHARE metaproperty UPLOADED is <12/14/2022 the ASSET STATUS Bynder metaproperty should be "Archived"
+    if (assetMetadata['system_uploaded']) {
+     const normalized_system_uploaded_date = assetMetadata['system_uploaded'].replace(/:/g, '-');
+      
+      const normalized_system_uploaded_date_ts = new Date(normalized_system_uploaded_date);
+      const archiveDatePeriod = new Date('2022-12-14'); //ArchiveDate timeperiod
+      if (normalized_system_uploaded_date_ts.getTime() < archiveDatePeriod.getTime()) {
+        formData.append('archiveDate', '2025-12-15T00:00:00Z')
+      }
+    } else {
+      this.mapFieldToPayload(metapropertiesPayload, 'In Progress', 'Status');
+    }
+
+    
 
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['model_name'] || '', 'Recognized_Faces');
 
@@ -391,15 +405,14 @@ export class BynderClient {
     formData.append('importId', importId);
     formData.append('name', filename);
 
-    if (assetMetadata['date_shot'] || assetMetadata['date_asset_delivered'] ||assetMetadata['system_uploaded']) {
-      const dateShot = assetMetadata['date_shot'] || assetMetadata['date_asset_delivered'] || assetMetadata['system_uploaded'];
+    // If SHARE uploaded date is < 12/14/2022 mark ArchiveDate in Bynder as 12/15/2025
+    if (assetMetadata['system_uploaded']) {
+     const normalized_system_uploaded_date = assetMetadata['system_uploaded'].replace(/:/g, '-');
       
-      const normalizedDateShot = dateShot.replace(/:/g, '-');
-      
-      const dateShotTS = new Date(normalizedDateShot);
-      const date2023TS = new Date('2023-01-01');
-      if (dateShotTS.getTime() < date2023TS.getTime()) {
-        formData.append('archiveDate', '2025-12-01T00:00:00Z')
+      const normalized_system_uploaded_date_ts = new Date(normalized_system_uploaded_date);
+      const archiveDatePeriod = new Date('2022-12-14'); //ArchiveDate timeperiod
+      if (normalized_system_uploaded_date_ts.getTime() < archiveDatePeriod.getTime()) {
+        formData.append('archiveDate', '2025-12-15T00:00:00Z')
       }
     }
 
