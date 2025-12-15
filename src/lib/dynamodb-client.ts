@@ -141,6 +141,8 @@ export async function putCreativeDriveAssetRecord(
     fallback: options.publicUrl ?? asset.attributes.meta?.image_origin ?? ''
   });
 
+  console.log(`Checking existing record for asset ${asset.attributes.id} in table ${tableName}`);
+  
   const existingRecord = await docClient.send(
     new GetCommand({
       TableName: tableName,
@@ -150,6 +152,8 @@ export async function putCreativeDriveAssetRecord(
 
   const currentStatus = existingRecord.Item?.status;
   const requestedMode = options.migrationMode ?? 'delta';
+  
+  console.log(`Existing record check: exists=${!!existingRecord.Item}, status=${currentStatus}, mode=${requestedMode}`);
 
   if (
     existingRecord.Item &&
@@ -169,6 +173,8 @@ export async function putCreativeDriveAssetRecord(
     );
   }
 
+  console.log(`Writing asset ${asset.attributes.id} to DynamoDB...`);
+  
   await putAssetRecord(tableName, {
     creativeDriveAssetId: String(asset.attributes.id),
     status: options.status ?? 'PENDING',
@@ -183,6 +189,7 @@ export async function putCreativeDriveAssetRecord(
     migrationMode: options.migrationMode ?? 'delta'
   });
 
+  console.log(`Successfully wrote asset ${asset.attributes.id} to DynamoDB`);
   return true;
 }
 

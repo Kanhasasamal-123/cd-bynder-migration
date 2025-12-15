@@ -166,14 +166,21 @@ export const handler: Handler = async (event: IngestEvent) => {
     let pendingWrites: WritePromise[] = [];
 
     // Helper to flush pending writes and collect results
+    let totalSkipped = 0;
     const flushPendingWrites = async (): Promise<void> => {
       if (pendingWrites.length === 0) return;
       
       const results = await Promise.allSettled(pendingWrites);
       for (const result of results) {
-        if (result.status === 'fulfilled' && result.value.inserted) {
-          totalAssetsIngested++;
-          consecutiveErrors = 0;
+        if (result.status === 'fulfilled') {
+          if (result.value.inserted) {
+            totalAssetsIngested++;
+            consecutiveErrors = 0;
+            console.log(`Ingested asset: ${result.value.filename} (${result.value.assetId})`);
+          } else {
+            // Asset was skipped (already exists in delta mode)
+            totalSkipped++;
+          }
         } else if (result.status === 'rejected') {
           const error = result.reason instanceof Error ? result.reason.message : 'Unknown error';
           console.error(`Failed to write asset to DynamoDB: ${error}`);
@@ -229,6 +236,11 @@ export const handler: Handler = async (event: IngestEvent) => {
           if (!assetId && currentTotal >= maxAssets) {
             limitReached = true;
             console.log(`Reached max assets limit of ${maxAssets}`);
+            // Flush any pending writes before breaking
+            if (pendingWrites.length > 0) {
+              console.log(`Flushing ${pendingWrites.length} pending writes before limit break...`);
+              await flushPendingWrites();
+            }
             break;
           }
 
@@ -260,16 +272,25 @@ export const handler: Handler = async (event: IngestEvent) => {
             };
 
             // Queue the write instead of awaiting it
+            const assetId_ = assetWithUrl.attributes.id;
+            const filename_ = assetWithUrl.attributes.original_filename;
+            
             const writePromise = writeAssetToDynamoDB(
               asset,
               metadata,
               assetWithUrl.attributes.meta?.image_origin,
               mode
-            ).then((inserted) => ({
-              inserted,
-              assetId: assetWithUrl.attributes.id,
-              filename: assetWithUrl.attributes.original_filename,
-            }));
+            ).then((inserted) => {
+              console.log(`Write result for ${assetId_}: inserted=${inserted}`);
+              return {
+                inserted,
+                assetId: assetId_,
+                filename: filename_,
+              };
+            }).catch((error) => {
+              console.error(`Write failed for ${assetId_}: ${error.message}`);
+              throw error; // Re-throw so Promise.allSettled sees it as rejected
+            });
 
             pendingWrites.push(writePromise);
             assetsQueuedThisPage++;
@@ -285,6 +306,10 @@ export const handler: Handler = async (event: IngestEvent) => {
                   `Reached ${maxConsecutiveErrors} consecutive errors while processing assets. Halting ingestion.`
                 );
                 limitReached = true;
+                // Flush remaining writes before breaking
+                if (pendingWrites.length > 0) {
+                  await flushPendingWrites();
+                }
                 break;
               }
             }
@@ -308,6 +333,10 @@ export const handler: Handler = async (event: IngestEvent) => {
                 `Reached ${maxConsecutiveErrors} consecutive errors while processing assets. Halting ingestion.`
               );
               limitReached = true;
+              // Flush remaining writes before breaking
+              if (pendingWrites.length > 0) {
+                await flushPendingWrites();
+              }
               break;
             }
           }
@@ -319,7 +348,7 @@ export const handler: Handler = async (event: IngestEvent) => {
           await flushPendingWrites();
         }
 
-        console.log(`Page complete: ${assetsQueuedThisPage} assets queued, ${totalAssetsIngested} total ingested`);
+        console.log(`Page complete: ${assetsQueuedThisPage} assets queued, ${totalAssetsIngested} ingested, ${totalSkipped} skipped`);
 
         // For specific assetId, we're done after first batch (no pagination needed)
         if (assetId) {
@@ -365,6 +394,7 @@ export const handler: Handler = async (event: IngestEvent) => {
             ? 'Ingestion completed successfully'
             : `Ingestion completed with ${failures.length} failure(s)`,
         totalAssetsIngested,
+        totalSkipped,
         totalFailures: failures.length,
         dryRun: isDryRun,
         failures:
@@ -382,6 +412,7 @@ export const handler: Handler = async (event: IngestEvent) => {
 
     console.log('Ingestion completed', {
       totalAssetsIngested,
+      totalSkipped,
       totalFailures: failures.length,
     });
     return result;
