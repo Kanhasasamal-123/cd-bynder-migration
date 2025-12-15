@@ -162,10 +162,8 @@ export class BynderClient {
 
     // If SHARE metaproperty UPLOADED is <12/14/2022 the ASSET STATUS Bynder metaproperty should be "Archived"
     if (assetMetadata['system_uploaded']) {
-     const normalized_system_uploaded_date = assetMetadata['system_uploaded'].replace(/:/g, '-');
-      
-      const normalized_system_uploaded_date_ts = new Date(normalized_system_uploaded_date);
-      const archiveDatePeriod = new Date('2022-12-14'); //ArchiveDate timeperiod
+      const normalized_system_uploaded_date_ts = new Date(assetMetadata['system_uploaded']);
+      const archiveDatePeriod = new Date('2022-12-14'); 
       if (normalized_system_uploaded_date_ts.getTime() < archiveDatePeriod.getTime()) {
         this.mapFieldToPayload(metapropertiesPayload, 'Archived', 'Asset_Status');
       } else {
