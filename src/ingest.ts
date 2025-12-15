@@ -161,7 +161,7 @@ export const handler: Handler = async (event: IngestEvent) => {
     const maxConsecutiveErrors = 10;
 
     // When searching for a specific assetId, we don't paginate - just one request
-    const pageSize = assetId ? 10 : 50;
+    const pageSize = assetId ? 10 : 2000;
     let offset = 0;
     let hasMore = true;
 
