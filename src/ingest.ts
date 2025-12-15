@@ -160,6 +160,33 @@ export const handler: Handler = async (event: IngestEvent) => {
     let consecutiveErrors = 0;
     const maxConsecutiveErrors = 10;
 
+    // Batch size for parallel DynamoDB writes
+    const WRITE_BATCH_SIZE = 100;
+    type WritePromise = Promise<{ inserted: boolean; assetId: string; filename: string }>;
+    let pendingWrites: WritePromise[] = [];
+
+    // Helper to flush pending writes and collect results
+    const flushPendingWrites = async (): Promise<void> => {
+      if (pendingWrites.length === 0) return;
+      
+      const results = await Promise.allSettled(pendingWrites);
+      for (const result of results) {
+        if (result.status === 'fulfilled' && result.value.inserted) {
+          totalAssetsIngested++;
+          consecutiveErrors = 0;
+        } else if (result.status === 'rejected') {
+          const error = result.reason instanceof Error ? result.reason.message : 'Unknown error';
+          console.error(`Failed to write asset to DynamoDB: ${error}`);
+          failures.push({
+            error,
+            stage: 'write_dynamodb',
+          });
+          consecutiveErrors++;
+        }
+      }
+      pendingWrites = [];
+    };
+
     // When searching for a specific assetId, we don't paginate - just one request
     const pageSize = assetId ? 10 : 2000;
     let offset = 0;
@@ -192,9 +219,14 @@ export const handler: Handler = async (event: IngestEvent) => {
           continue;
         }
 
+        // Track assets queued in this page for limit checking
+        let assetsQueuedThisPage = 0;
+        
         for (const assetWithUrl of assetsWithUrls) {
           // For specific assetId search, ignore maxAssets limit
-          if (!assetId && totalAssetsIngested >= maxAssets) {
+          // Note: we check pending writes count + ingested count for accurate limit
+          const currentTotal = totalAssetsIngested + pendingWrites.length;
+          if (!assetId && currentTotal >= maxAssets) {
             limitReached = true;
             console.log(`Reached max assets limit of ${maxAssets}`);
             break;
@@ -227,24 +259,35 @@ export const handler: Handler = async (event: IngestEvent) => {
               },
             };
 
-            const recordInserted = await writeAssetToDynamoDB(
+            // Queue the write instead of awaiting it
+            const writePromise = writeAssetToDynamoDB(
               asset,
               metadata,
               assetWithUrl.attributes.meta?.image_origin,
               mode
-            );
+            ).then((inserted) => ({
+              inserted,
+              assetId: assetWithUrl.attributes.id,
+              filename: assetWithUrl.attributes.original_filename,
+            }));
 
-            if (!recordInserted) {
-              continue;
+            pendingWrites.push(writePromise);
+            assetsQueuedThisPage++;
+
+            // Flush batch when we hit the batch size
+            if (pendingWrites.length >= WRITE_BATCH_SIZE) {
+              console.log(`Flushing batch of ${pendingWrites.length} writes...`);
+              await flushPendingWrites();
+
+              // Check consecutive errors after flush
+              if (consecutiveErrors >= maxConsecutiveErrors) {
+                console.error(
+                  `Reached ${maxConsecutiveErrors} consecutive errors while processing assets. Halting ingestion.`
+                );
+                limitReached = true;
+                break;
+              }
             }
-
-            totalAssetsIngested++;
-            consecutiveErrors = 0;
-
-            const progress = assetId 
-              ? '' 
-              : ` (${totalAssetsIngested}/${maxAssets === Infinity ? '∞' : maxAssets})`;
-            console.log(`Ingested asset: ${assetWithUrl.attributes.original_filename}${progress}`);
           } catch (error) {
             const errorMsg =
               error instanceof Error ? error.message : 'Unknown error processing asset';
@@ -269,6 +312,14 @@ export const handler: Handler = async (event: IngestEvent) => {
             }
           }
         }
+
+        // Flush any remaining writes at end of page
+        if (pendingWrites.length > 0) {
+          console.log(`Flushing remaining ${pendingWrites.length} writes...`);
+          await flushPendingWrites();
+        }
+
+        console.log(`Page complete: ${assetsQueuedThisPage} assets queued, ${totalAssetsIngested} total ingested`);
 
         // For specific assetId, we're done after first batch (no pagination needed)
         if (assetId) {
