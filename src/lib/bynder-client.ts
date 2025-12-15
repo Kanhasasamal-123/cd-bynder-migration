@@ -168,7 +168,10 @@ export class BynderClient {
       const archiveDatePeriod = new Date('2022-12-14'); //ArchiveDate timeperiod
       if (normalized_system_uploaded_date_ts.getTime() < archiveDatePeriod.getTime()) {
         this.mapFieldToPayload(metapropertiesPayload, 'Archived', 'Asset_Status');
+      } else {
+        this.mapFieldToPayload(metapropertiesPayload, 'In Progress', 'Asset_Status');
       }
+
     } else {
       this.mapFieldToPayload(metapropertiesPayload, 'In Progress', 'Asset_Status');
     }
