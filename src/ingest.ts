@@ -6,8 +6,9 @@ import { putCreativeDriveAssetRecord, batchCheckAssetStatus } from './lib/dynamo
 
 const secretsClient = new SecretsManagerClient({});
 
-const TABLE_NAME = process.env.MIGRATION_TRACKER_TABLE || '';
-const SECRET_NAME = process.env.CREATIVE_DRIVE_SECRET_NAME || '';
+// Read env vars at runtime (not at module load) for testability
+const getTableName = () => process.env.MIGRATION_TRACKER_TABLE || '';
+const getSecretName = () => process.env.CREATIVE_DRIVE_SECRET_NAME || '';
 
 // Configuration for parallel fetching
 const SEARCH_PAGE_SIZE = 50; // Assets per searchAssets call
@@ -178,9 +179,6 @@ async function fetchAllAssets(params: FetchAllAssetsParams): Promise<FetchAllAss
       
       if (result && result.assets) {
         for (const a of result.assets) {
-          // Stop if we've hit maxAssets
-          if (allAssets.length >= maxAssets) break;
-          
           allAssets.push({
             id: a.attributes.id,
             original_filename: a.attributes.original_filename,
@@ -195,12 +193,6 @@ async function fetchAllAssets(params: FetchAllAssetsParams): Promise<FetchAllAss
     }
     
     console.log(`Batch ${batchNum} complete. Total assets fetched: ${allAssets.length}`);
-    
-    // Stop if we've hit maxAssets
-    if (allAssets.length >= maxAssets) {
-      console.log(`Reached maxAssets limit (${maxAssets}), stopping fetch`);
-      break;
-    }
   }
 
   console.log(`Fetch complete: ${allAssets.length} assets loaded into memory`);
@@ -208,7 +200,7 @@ async function fetchAllAssets(params: FetchAllAssetsParams): Promise<FetchAllAss
 }
 
 async function getCreativeDriveCredentials(): Promise<CreativeDriveCredentials> {
-  const command = new GetSecretValueCommand({ SecretId: SECRET_NAME });
+  const command = new GetSecretValueCommand({ SecretId: getSecretName() });
   const response = await secretsClient.send(command);
 
   if (!response.SecretString) {
@@ -352,7 +344,7 @@ export const handler: Handler = async (event: IngestEvent) => {
       const assetIds = fetchedAssets.map(a => a.id);
       console.log(`Checking ${assetIds.length} assets against DynamoDB...`);
       
-      const existingStatus = await batchCheckAssetStatus(TABLE_NAME, assetIds);
+      const existingStatus = await batchCheckAssetStatus(getTableName(), assetIds);
       
       let alreadyMigrated = 0;
       let pendingOrNew = 0;
@@ -474,7 +466,7 @@ export const handler: Handler = async (event: IngestEvent) => {
             },
           };
           
-          return putCreativeDriveAssetRecord(TABLE_NAME, assetRecord, metadata || undefined, {
+          return putCreativeDriveAssetRecord(getTableName(), assetRecord, metadata || undefined, {
             status: 'PENDING',
             migrationMode: mode,
             publicUrl: asset.publicUrl

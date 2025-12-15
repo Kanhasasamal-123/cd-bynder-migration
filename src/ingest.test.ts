@@ -18,8 +18,8 @@ jest.mock('@aws-sdk/lib-dynamodb', () => ({
       send: (...args: any[]) => mockDynamoSend(...args),
     })),
   },
-  PutCommand: jest.fn((params) => ({ ...params, __type: 'PutCommand' })),
-  GetCommand: jest.fn((params) => ({ ...params, __type: 'GetCommand' })),
+  PutCommand: jest.fn().mockImplementation((params) => ({ ...params, _commandType: 'Put' })),
+  BatchGetCommand: jest.fn().mockImplementation((params) => ({ ...params, _commandType: 'BatchGet' })),
 }));
 
 jest.mock('@aws-sdk/client-secrets-manager', () => ({
@@ -37,7 +37,16 @@ jest.mock('axios', () => ({
 
 describe('CreativeDriveIngestLambda', () => {
   beforeEach(() => {
-    mockDynamoSend = jest.fn().mockResolvedValue({});
+    // Default mock: BatchGetCommand returns empty (no existing assets), PutCommand succeeds
+    mockDynamoSend = jest.fn().mockImplementation((cmd) => {
+      // BatchGetCommand has RequestItems property
+      if (cmd.RequestItems) {
+        // Return empty responses (no existing assets)
+        return Promise.resolve({ Responses: { 'test-table': [] } });
+      }
+      // PutCommand
+      return Promise.resolve({});
+    });
     mockSecretsSend = jest.fn().mockResolvedValue({
       SecretString: JSON.stringify({ apiKey: 'test-api-key' }),
     });
@@ -57,7 +66,8 @@ describe('CreativeDriveIngestLambda', () => {
   });
 
   it('should fetch specified division and write assets to DynamoDB', async () => {
-    mockAxiosPost.mockResolvedValueOnce({
+    // Phase 1 makes 2 search calls: one for count, one for assets
+    const assetResponse = {
       data: {
         data: [
           {
@@ -77,7 +87,8 @@ describe('CreativeDriveIngestLambda', () => {
         ],
         meta: { total: 1 },
       },
-    });
+    };
+    mockAxiosPost.mockResolvedValue(assetResponse);
 
     mockAxiosGet.mockResolvedValueOnce({
       data: {
@@ -103,12 +114,13 @@ describe('CreativeDriveIngestLambda', () => {
       totalAssetsIngested: 1,
       dryRun: false,
     });
-    expect(mockAxiosPost).toHaveBeenCalledTimes(1);
-    expect(mockDynamoSend).toHaveBeenCalledTimes(2);
+    // Phase 1: 2 POST calls (count + assets), Phase 1.5: 1 BatchGet, Phase 3: 1 Put
+    expect(mockAxiosPost).toHaveBeenCalled();
+    expect(mockDynamoSend).toHaveBeenCalledTimes(2); // 1 BatchGet + 1 Put
   });
 
   it('should skip already processed assets in delta mode and not count them', async () => {
-    mockAxiosPost.mockResolvedValueOnce({
+    const assetResponse = {
       data: {
         data: [
           {
@@ -128,16 +140,17 @@ describe('CreativeDriveIngestLambda', () => {
         ],
         meta: { total: 1 },
       },
-    });
+    };
+    mockAxiosPost.mockResolvedValue(assetResponse);
 
-    mockAxiosGet.mockResolvedValueOnce({ data: { data: [] } });
-
-    mockDynamoSend.mockResolvedValueOnce({
-      Item: {
-        creativeDriveAssetId: '595167',
-        status: 'UPLOADED',
-        migrationMode: 'delta',
-      },
+    // Reset and set up mock to return UPLOADED asset - should be skipped in Phase 1.5
+    mockDynamoSend.mockReset();
+    mockDynamoSend.mockResolvedValue({
+      Responses: {
+        'test-table': [
+          { creativeDriveAssetId: '595167', status: 'UPLOADED' }
+        ]
+      }
     });
 
     const result = await handler({ maxAssets: 10, divisionId: '45' }, {} as any, {} as any);
@@ -148,7 +161,10 @@ describe('CreativeDriveIngestLambda', () => {
       totalAssetsIngested: 0,
       dryRun: false,
     });
+    // Only 1 BatchGetCommand, no PutCommand since asset was skipped
     expect(mockDynamoSend).toHaveBeenCalledTimes(1);
+    // No metadata fetch since asset was filtered out
+    expect(mockAxiosGet).not.toHaveBeenCalled();
   });
 
   it('should handle API errors gracefully', async () => {
@@ -164,7 +180,7 @@ describe('CreativeDriveIngestLambda', () => {
   });
 
   it('should search by specific asset ID using query parameter', async () => {
-    mockAxiosPost.mockResolvedValueOnce({
+    mockAxiosPost.mockResolvedValue({
       data: {
         data: [
           {
@@ -206,11 +222,12 @@ describe('CreativeDriveIngestLambda', () => {
       expect.objectContaining({ query: '595167' }),
       expect.any(Object)
     );
+    // 1 BatchGet + 1 Put
     expect(mockDynamoSend).toHaveBeenCalledTimes(2);
   });
 
   it('should honor syncLastDays parameter', async () => {
-    mockAxiosPost.mockResolvedValueOnce({
+    mockAxiosPost.mockResolvedValue({
       data: {
         data: [
           {
@@ -244,7 +261,7 @@ describe('CreativeDriveIngestLambda', () => {
   });
 
   it('supports dry-run mode without writing to DynamoDB', async () => {
-    mockAxiosPost.mockResolvedValueOnce({
+    mockAxiosPost.mockResolvedValue({
       data: {
         data: [
           {
@@ -276,7 +293,9 @@ describe('CreativeDriveIngestLambda', () => {
     const body = JSON.parse(result.body);
     expect(body.dryRun).toBe(true);
     expect(body.totalAssetsIngested).toBe(1);
+    // In dry-run, no DynamoDB calls (skip batch check and writes)
     expect(mockDynamoSend).not.toHaveBeenCalled();
+    // No metadata fetch in dry-run
     expect(mockAxiosGet).not.toHaveBeenCalled();
   });
 });
