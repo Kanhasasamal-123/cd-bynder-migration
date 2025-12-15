@@ -12,8 +12,8 @@ const getSecretName = () => process.env.CREATIVE_DRIVE_SECRET_NAME || '';
 
 // Configuration for parallel fetching
 const SEARCH_PAGE_SIZE = 50; // Assets per searchAssets call
-const MAX_PARALLEL_SEARCHES = 1000; // Max concurrent searchAssets requests
-const METADATA_BATCH_SIZE = 100; // Parallel metadata fetches
+const MAX_PARALLEL_SEARCHES = 20; // Max concurrent searchAssets requests
+const METADATA_BATCH_SIZE = 20; // Parallel metadata fetches
 const WRITE_BATCH_SIZE = 100; // Parallel DynamoDB writes
 
 interface CreativeDriveCredentials {
