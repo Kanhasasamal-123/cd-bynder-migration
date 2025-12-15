@@ -1,13 +1,19 @@
 import { Handler } from 'aws-lambda';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
-import { CreativeDriveClient, AssetMetadata } from './lib/creativedrive-client';
+import { CreativeDriveClient, AssetMetadata, SearchAssetsResult } from './lib/creativedrive-client';
 import { calculateDateRange } from './lib/utils/dateUtils';
-import { putCreativeDriveAssetRecord } from './lib/dynamodb-client';
+import { putCreativeDriveAssetRecord, batchCheckAssetStatus } from './lib/dynamodb-client';
 
 const secretsClient = new SecretsManagerClient({});
 
 const TABLE_NAME = process.env.MIGRATION_TRACKER_TABLE || '';
 const SECRET_NAME = process.env.CREATIVE_DRIVE_SECRET_NAME || '';
+
+// Configuration for parallel fetching
+const SEARCH_PAGE_SIZE = 50; // Assets per searchAssets call
+const MAX_PARALLEL_SEARCHES = 1000; // Max concurrent searchAssets requests
+const METADATA_BATCH_SIZE = 100; // Parallel metadata fetches
+const WRITE_BATCH_SIZE = 100; // Parallel DynamoDB writes
 
 interface CreativeDriveCredentials {
   apiKey: string;
@@ -40,6 +46,167 @@ interface IngestEvent {
   dryRun?: boolean;
 }
 
+interface IngestionFailure {
+  assetId?: string;
+  divisionId?: string;
+  filename?: string;
+  error: string;
+  stage: 'fetch_metadata' | 'write_dynamodb' | 'fetch_assets' | 'other';
+}
+
+interface FetchedAsset {
+  id: string;
+  original_filename: string;
+  original_filesize: number;
+  extension: string;
+  folder_id: string;
+  division_id: string;
+  publicUrl: string;
+}
+
+interface FetchAllAssetsParams {
+  client: CreativeDriveClient;
+  divisionId: number;
+  folderId: string;
+  dateRange: { start: string; end: string };
+  assetId?: string;
+}
+
+interface FetchAllAssetsResult {
+  assets: FetchedAsset[];
+  failures: IngestionFailure[];
+  totalAvailable: number;
+}
+
+/**
+ * Fetch all assets from CreativeDrive in parallel batches.
+ * Uses small page sizes (50) with up to 1000 parallel requests for speed.
+ */
+async function fetchAllAssets(params: FetchAllAssetsParams): Promise<FetchAllAssetsResult> {
+  const { client, divisionId, folderId, dateRange, assetId } = params;
+  const failures: IngestionFailure[] = [];
+
+  // For specific asset ID, just do a single search
+  if (assetId) {
+    try {
+      const { assets } = await client.searchAssets({
+        divisions: [divisionId],
+        folderId,
+        dateRange,
+        query: assetId,
+        options: { limit: 10, offset: 0 },
+      });
+      
+      const fetchedAssets: FetchedAsset[] = assets.map(a => ({
+        id: a.attributes.id,
+        original_filename: a.attributes.original_filename,
+        original_filesize: a.attributes.original_filesize,
+        extension: a.attributes.extension,
+        folder_id: a.attributes.folder_id || '',
+        division_id: a.attributes.division_id || String(divisionId),
+        publicUrl: a.attributes.meta?.image_origin || '',
+      }));
+      
+      return { assets: fetchedAssets, failures, totalAvailable: assets.length };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      failures.push({ assetId, error: errorMsg, stage: 'fetch_assets' });
+      return { assets: [], failures, totalAvailable: 0 };
+    }
+  }
+
+  // First, get the total count with a small request
+  console.log('Fetching total asset count...');
+  let totalAvailable = 0;
+  try {
+    const { total } = await client.searchAssets({
+      divisions: [divisionId],
+      folderId,
+      dateRange,
+      options: { limit: 1, offset: 0 },
+    });
+    totalAvailable = total;
+    console.log(`Total assets available: ${totalAvailable}`);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+    failures.push({ divisionId: String(divisionId), error: errorMsg, stage: 'fetch_assets' });
+    return { assets: [], failures, totalAvailable: 0 };
+  }
+
+  const numPages = Math.ceil(totalAvailable / SEARCH_PAGE_SIZE);
+  
+  console.log(`Will fetch ${totalAvailable} assets in ${numPages} pages (${SEARCH_PAGE_SIZE} per page)`);
+
+  // Generate all offsets
+  const offsets: number[] = [];
+  for (let i = 0; i < numPages; i++) {
+    offsets.push(i * SEARCH_PAGE_SIZE);
+  }
+
+  // Fetch all pages in parallel batches
+  const allAssets: FetchedAsset[] = [];
+  
+  for (let batchStart = 0; batchStart < offsets.length; batchStart += MAX_PARALLEL_SEARCHES) {
+    const batchOffsets = offsets.slice(batchStart, batchStart + MAX_PARALLEL_SEARCHES);
+    const batchNum = Math.floor(batchStart / MAX_PARALLEL_SEARCHES) + 1;
+    const totalBatches = Math.ceil(offsets.length / MAX_PARALLEL_SEARCHES);
+    
+    console.log(`Fetching batch ${batchNum}/${totalBatches} (${batchOffsets.length} parallel requests)...`);
+    
+    const searchPromises = batchOffsets.map(offset => 
+      client.searchAssets({
+        divisions: [divisionId],
+        folderId,
+        dateRange,
+        options: { limit: SEARCH_PAGE_SIZE, offset },
+      }).then(result => ({ offset, result, error: null as Error | null }))
+        .catch(error => ({ offset, result: null as SearchAssetsResult | null, error: error as Error }))
+    );
+
+    const results = await Promise.all(searchPromises);
+    
+    for (const { offset, result, error } of results) {
+      if (error) {
+        console.error(`Failed to fetch assets at offset ${offset}: ${error.message}`);
+        failures.push({
+          divisionId: String(divisionId),
+          error: `Offset ${offset}: ${error.message}`,
+          stage: 'fetch_assets',
+        });
+        continue;
+      }
+      
+      if (result && result.assets) {
+        for (const a of result.assets) {
+          // Stop if we've hit maxAssets
+          if (allAssets.length >= maxAssets) break;
+          
+          allAssets.push({
+            id: a.attributes.id,
+            original_filename: a.attributes.original_filename,
+            original_filesize: a.attributes.original_filesize,
+            extension: a.attributes.extension,
+            folder_id: a.attributes.folder_id || '',
+            division_id: a.attributes.division_id || String(divisionId),
+            publicUrl: a.attributes.meta?.image_origin || '',
+          });
+        }
+      }
+    }
+    
+    console.log(`Batch ${batchNum} complete. Total assets fetched: ${allAssets.length}`);
+    
+    // Stop if we've hit maxAssets
+    if (allAssets.length >= maxAssets) {
+      console.log(`Reached maxAssets limit (${maxAssets}), stopping fetch`);
+      break;
+    }
+  }
+
+  console.log(`Fetch complete: ${allAssets.length} assets loaded into memory`);
+  return { assets: allAssets, failures, totalAvailable };
+}
+
 async function getCreativeDriveCredentials(): Promise<CreativeDriveCredentials> {
   const command = new GetSecretValueCommand({ SecretId: SECRET_NAME });
   const response = await secretsClient.send(command);
@@ -49,27 +216,6 @@ async function getCreativeDriveCredentials(): Promise<CreativeDriveCredentials> 
   }
 
   return JSON.parse(response.SecretString) as CreativeDriveCredentials;
-}
-
-async function writeAssetToDynamoDB(
-  asset: Asset,
-  metadata?: AssetMetadata[],
-  publicUrl?: string,
-  mode?: 'full' | 'delta'
-): Promise<boolean> {
-  return putCreativeDriveAssetRecord(TABLE_NAME, asset, metadata, {
-    status: 'PENDING',
-    migrationMode: mode || 'delta',
-    publicUrl: publicUrl || ''
-  });
-}
-
-interface IngestionFailure {
-  assetId?: string;
-  divisionId?: string;
-  filename?: string;
-  error: string;
-  stage: 'fetch_metadata' | 'write_dynamodb' | 'fetch_assets' | 'other';
 }
 
 export const handler: Handler = async (event: IngestEvent) => {
@@ -155,222 +301,213 @@ export const handler: Handler = async (event: IngestEvent) => {
     console.log(`Processing division ID: ${divisionId}`);
 
     let totalAssetsIngested = 0;
-    const failures: IngestionFailure[] = [];
-    let limitReached = false;
-    let consecutiveErrors = 0;
-    const maxConsecutiveErrors = 10;
-
-    // Batch size for parallel DynamoDB writes
-    const WRITE_BATCH_SIZE = 100;
-    type WritePromise = Promise<{ inserted: boolean; assetId: string; filename: string }>;
-    let pendingWrites: WritePromise[] = [];
-
-    // Helper to flush pending writes and collect results
     let totalSkipped = 0;
-    const flushPendingWrites = async (): Promise<void> => {
-      if (pendingWrites.length === 0) return;
-      
-      const results = await Promise.allSettled(pendingWrites);
-      for (const result of results) {
-        if (result.status === 'fulfilled') {
-          if (result.value.inserted) {
-            totalAssetsIngested++;
-            consecutiveErrors = 0;
-            console.log(`Ingested asset: ${result.value.filename} (${result.value.assetId})`);
-          } else {
-            // Asset was skipped (already exists in delta mode)
-            totalSkipped++;
-          }
-        } else if (result.status === 'rejected') {
-          const error = result.reason instanceof Error ? result.reason.message : 'Unknown error';
-          console.error(`Failed to write asset to DynamoDB: ${error}`);
-          failures.push({
-            error,
-            stage: 'write_dynamodb',
-          });
-          consecutiveErrors++;
-        }
-      }
-      pendingWrites = [];
-    };
+    const failures: IngestionFailure[] = [];
 
-    // When searching for a specific assetId, we don't paginate - just one request
-    const pageSize = assetId ? 10 : 2000;
-    let offset = 0;
-    let hasMore = true;
-
-    while (hasMore && !limitReached) {
-      try {
-        const { assets: assetsWithUrls = [], total } = await client.searchAssets({
-          divisions: [numericDivisionId],
-          folderId,
-          dateRange,
-          query: assetId,
-          options: {
-            limit: pageSize,
-            offset,
-          },
-        });
-
-        if (!assetId) {
-          console.log(
-            `Fetched ${assetsWithUrls.length} assets (offset: ${offset}, total: ${total})`
-          );
-        }
-
-        if (assetsWithUrls.length === 0) {
-          if (assetId) {
-            console.warn(`Asset ID ${assetId} not found in search results`);
-          }
-          hasMore = false;
-          continue;
-        }
-
-        // Track assets queued in this page for limit checking
-        let assetsQueuedThisPage = 0;
-        
-        for (const assetWithUrl of assetsWithUrls) {
-          // For specific assetId search, ignore maxAssets limit
-          // Note: we check pending writes count + ingested count for accurate limit
-          const currentTotal = totalAssetsIngested + pendingWrites.length;
-          if (!assetId && currentTotal >= maxAssets) {
-            limitReached = true;
-            console.log(`Reached max assets limit of ${maxAssets}`);
-            // Flush any pending writes before breaking
-            if (pendingWrites.length > 0) {
-              console.log(`Flushing ${pendingWrites.length} pending writes before limit break...`);
-              await flushPendingWrites();
-            }
-            break;
-          }
-
-          try {
-            if (isDryRun) {
-              console.log(
-                `[DRY-RUN] Would ingest asset ${assetWithUrl.attributes.id} (${assetWithUrl.attributes.original_filename})`
-              );
-              totalAssetsIngested++;
-              continue;
-            }
-
-            console.log(`Fetching metadata for asset: ${assetWithUrl.attributes.id}`);
-            const metadata = await client.getAssetMetadata(assetWithUrl.attributes.id);
-
-            const asset: Asset = {
-              type: 'asset',
-              attributes: {
-                id: assetWithUrl.attributes.id,
-                original_filename: assetWithUrl.attributes.original_filename,
-                original_filesize: assetWithUrl.attributes.original_filesize,
-                extension: assetWithUrl.attributes.extension,
-                ts_folder_id: assetWithUrl.attributes.folder_id || '',
-                division_id: assetWithUrl.attributes.division_id || divisionId,
-                url: '',
-                path: '',
-                filename: assetWithUrl.attributes.original_filename,
-              },
-            };
-
-            // Queue the write instead of awaiting it
-            const assetId_ = assetWithUrl.attributes.id;
-            const filename_ = assetWithUrl.attributes.original_filename;
-            
-            const writePromise = writeAssetToDynamoDB(
-              asset,
-              metadata,
-              assetWithUrl.attributes.meta?.image_origin,
-              mode
-            ).then((inserted) => {
-              console.log(`Write result for ${assetId_}: inserted=${inserted}`);
-              return {
-                inserted,
-                assetId: assetId_,
-                filename: filename_,
-              };
-            }).catch((error) => {
-              console.error(`Write failed for ${assetId_}: ${error.message}`);
-              throw error; // Re-throw so Promise.allSettled sees it as rejected
-            });
-
-            pendingWrites.push(writePromise);
-            assetsQueuedThisPage++;
-
-            // Flush batch when we hit the batch size
-            if (pendingWrites.length >= WRITE_BATCH_SIZE) {
-              console.log(`Flushing batch of ${pendingWrites.length} writes...`);
-              await flushPendingWrites();
-
-              // Check consecutive errors after flush
-              if (consecutiveErrors >= maxConsecutiveErrors) {
-                console.error(
-                  `Reached ${maxConsecutiveErrors} consecutive errors while processing assets. Halting ingestion.`
-                );
-                limitReached = true;
-                // Flush remaining writes before breaking
-                if (pendingWrites.length > 0) {
-                  await flushPendingWrites();
-                }
-                break;
-              }
-            }
-          } catch (error) {
-            const errorMsg =
-              error instanceof Error ? error.message : 'Unknown error processing asset';
-            console.error(
-              `Failed to process asset ${assetWithUrl.attributes.id} (${assetWithUrl.attributes.original_filename}): ${errorMsg}`
-            );
-            failures.push({
-              assetId: assetWithUrl.attributes.id,
-              filename: assetWithUrl.attributes.original_filename,
-              divisionId,
-              error: errorMsg,
-              stage: errorMsg.includes('metadata') ? 'fetch_metadata' : 'write_dynamodb',
-            });
-
-            consecutiveErrors++;
-            if (consecutiveErrors >= maxConsecutiveErrors) {
-              console.error(
-                `Reached ${maxConsecutiveErrors} consecutive errors while processing assets. Halting ingestion.`
-              );
-              limitReached = true;
-              // Flush remaining writes before breaking
-              if (pendingWrites.length > 0) {
-                await flushPendingWrites();
-              }
-              break;
-            }
-          }
-        }
-
-        // Flush any remaining writes at end of page
-        if (pendingWrites.length > 0) {
-          console.log(`Flushing remaining ${pendingWrites.length} writes...`);
-          await flushPendingWrites();
-        }
-
-        console.log(`Page complete: ${assetsQueuedThisPage} assets queued, ${totalAssetsIngested} ingested, ${totalSkipped} skipped`);
-
-        // For specific assetId, we're done after first batch (no pagination needed)
-        if (assetId) {
-          hasMore = false;
-        } else {
-          offset += pageSize;
-          hasMore = offset < total;
-        }
-      } catch (error) {
-        const errorMsg =
-          error instanceof Error ? error.message : 'Unknown error fetching assets';
-        const context = assetId ? `asset ${assetId}` : `division ${divisionId}`;
-        console.error(`Failed to fetch assets from ${context}: ${errorMsg}`);
-        failures.push({
-          assetId: assetId || undefined,
-          divisionId,
-          error: errorMsg,
-          stage: 'fetch_assets',
-        });
-        hasMore = false;
+    // ========================================
+    // PHASE 1: Fetch all assets into memory
+    // ========================================
+    console.log('\n========== PHASE 1: Fetching assets ==========');
+    const fetchStartTime = Date.now();
+    
+    const { assets: fetchedAssets, failures: fetchFailures } = await fetchAllAssets({
+      client,
+      divisionId: numericDivisionId,
+      folderId,
+      dateRange,
+      assetId,
+    });
+    
+    failures.push(...fetchFailures);
+    
+    const fetchDuration = ((Date.now() - fetchStartTime) / 1000).toFixed(1);
+    console.log(`Phase 1 complete: ${fetchedAssets.length} assets fetched in ${fetchDuration}s`);
+    
+    if (fetchedAssets.length === 0) {
+      if (assetId) {
+        console.warn(`Asset ID ${assetId} not found`);
+      } else {
+        console.warn('No assets found matching criteria');
       }
     }
+
+    // ========================================
+    // PHASE 1.5: Filter out already-migrated assets
+    // ========================================
+    console.log('\n========== PHASE 1.5: Checking DynamoDB for existing assets ==========');
+    const filterStartTime = Date.now();
+    
+    let assetsToProcess: FetchedAsset[] = [];
+    
+    if (isDryRun) {
+      // In dry run, process all assets
+      assetsToProcess = fetchedAssets;
+      console.log(`[DRY-RUN] Skipping DynamoDB check, will process all ${fetchedAssets.length} assets`);
+    } else if (mode === 'full') {
+      // In full mode, process all assets (will overwrite existing)
+      assetsToProcess = fetchedAssets;
+      console.log(`Full mode: will process all ${fetchedAssets.length} assets (overwriting existing)`);
+    } else {
+      // Delta mode: check which assets already exist and skip non-PENDING ones
+      const assetIds = fetchedAssets.map(a => a.id);
+      console.log(`Checking ${assetIds.length} assets against DynamoDB...`);
+      
+      const existingStatus = await batchCheckAssetStatus(TABLE_NAME, assetIds);
+      
+      let alreadyMigrated = 0;
+      let pendingOrNew = 0;
+      
+      for (const asset of fetchedAssets) {
+        const status = existingStatus.get(asset.id);
+        
+        if (status?.exists && status.status && status.status !== 'PENDING') {
+          // Already migrated (has non-PENDING status), skip
+          alreadyMigrated++;
+          totalSkipped++;
+        } else {
+          // New or PENDING, needs processing
+          assetsToProcess.push(asset);
+          pendingOrNew++;
+        }
+      }
+      
+      console.log(`DynamoDB check complete: ${alreadyMigrated} already migrated (skipped), ${pendingOrNew} need processing`);
+    }
+
+    // Apply maxAssets limit to assets that need processing
+    if (assetsToProcess.length > maxAssets) {
+      console.log(`Limiting to maxAssets: ${maxAssets} (from ${assetsToProcess.length} available)`);
+      assetsToProcess = assetsToProcess.slice(0, maxAssets);
+    }
+    
+    const filterDuration = ((Date.now() - filterStartTime) / 1000).toFixed(1);
+    console.log(`Phase 1.5 complete: ${assetsToProcess.length} assets to process in ${filterDuration}s`);
+
+    // ========================================
+    // PHASE 2: Fetch metadata in parallel
+    // ========================================
+    console.log('\n========== PHASE 2: Fetching metadata ==========');
+    const metadataStartTime = Date.now();
+    
+    interface AssetWithMetadata {
+      asset: FetchedAsset;
+      metadata: AssetMetadata[] | null;
+    }
+    
+    const assetsWithMetadata: AssetWithMetadata[] = [];
+    
+    if (isDryRun) {
+      // In dry run, skip metadata fetch
+      for (const asset of assetsToProcess) {
+        console.log(`[DRY-RUN] Would ingest asset ${asset.id} (${asset.original_filename})`);
+        assetsWithMetadata.push({ asset, metadata: null });
+      }
+    } else if (assetsToProcess.length === 0) {
+      console.log('No assets need processing, skipping metadata fetch');
+    } else {
+      // Fetch metadata in parallel batches
+      for (let i = 0; i < assetsToProcess.length; i += METADATA_BATCH_SIZE) {
+        const batch = assetsToProcess.slice(i, i + METADATA_BATCH_SIZE);
+        const batchNum = Math.floor(i / METADATA_BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(assetsToProcess.length / METADATA_BATCH_SIZE);
+        
+        console.log(`Fetching metadata batch ${batchNum}/${totalBatches} (${batch.length} assets)...`);
+        
+        const metadataPromises = batch.map(asset =>
+          client.getAssetMetadata(asset.id)
+            .then(metadata => ({ asset, metadata, error: null as Error | null }))
+            .catch(error => ({ asset, metadata: null as AssetMetadata[] | null, error: error as Error }))
+        );
+        
+        const results = await Promise.all(metadataPromises);
+        
+        for (const { asset, metadata, error } of results) {
+          if (error) {
+            console.error(`Failed to fetch metadata for ${asset.id}: ${error.message}`);
+            failures.push({
+              assetId: asset.id,
+              filename: asset.original_filename,
+              divisionId,
+              error: error.message,
+              stage: 'fetch_metadata',
+            });
+          } else {
+            assetsWithMetadata.push({ asset, metadata });
+          }
+        }
+      }
+    }
+    
+    const metadataDuration = ((Date.now() - metadataStartTime) / 1000).toFixed(1);
+    console.log(`Phase 2 complete: ${assetsWithMetadata.length} assets with metadata in ${metadataDuration}s`);
+
+    // ========================================
+    // PHASE 3: Write to DynamoDB in parallel
+    // ========================================
+    console.log('\n========== PHASE 3: Writing to DynamoDB ==========');
+    const writeStartTime = Date.now();
+    
+    if (isDryRun) {
+      totalAssetsIngested = assetsWithMetadata.length;
+      console.log(`[DRY-RUN] Would write ${totalAssetsIngested} assets to DynamoDB`);
+    } else {
+      for (let i = 0; i < assetsWithMetadata.length; i += WRITE_BATCH_SIZE) {
+        const batch = assetsWithMetadata.slice(i, i + WRITE_BATCH_SIZE);
+        const batchNum = Math.floor(i / WRITE_BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(assetsWithMetadata.length / WRITE_BATCH_SIZE);
+        
+        console.log(`Writing batch ${batchNum}/${totalBatches} (${batch.length} assets)...`);
+        
+        const writePromises = batch.map(({ asset, metadata }) => {
+          const assetRecord: Asset = {
+            type: 'asset',
+            attributes: {
+              id: asset.id,
+              original_filename: asset.original_filename,
+              original_filesize: asset.original_filesize,
+              extension: asset.extension,
+              ts_folder_id: asset.folder_id,
+              division_id: asset.division_id,
+              url: '',
+              path: '',
+              filename: asset.original_filename,
+            },
+          };
+          
+          return putCreativeDriveAssetRecord(TABLE_NAME, assetRecord, metadata || undefined, {
+            status: 'PENDING',
+            migrationMode: mode,
+            publicUrl: asset.publicUrl
+          })
+            .then(inserted => ({ asset, inserted, error: null as Error | null }))
+            .catch(error => ({ asset, inserted: false, error: error as Error }));
+        });
+        
+        const results = await Promise.all(writePromises);
+        
+        for (const { asset, inserted, error } of results) {
+          if (error) {
+            console.error(`Failed to write ${asset.id}: ${error.message}`);
+            failures.push({
+              assetId: asset.id,
+              filename: asset.original_filename,
+              divisionId,
+              error: error.message,
+              stage: 'write_dynamodb',
+            });
+          } else if (inserted) {
+            totalAssetsIngested++;
+          } else {
+            totalSkipped++;
+          }
+        }
+        
+        console.log(`Batch ${batchNum} complete: ${totalAssetsIngested} ingested, ${totalSkipped} skipped`);
+      }
+    }
+    
+    const writeDuration = ((Date.now() - writeStartTime) / 1000).toFixed(1);
+    console.log(`Phase 3 complete: ${totalAssetsIngested} written, ${totalSkipped} skipped in ${writeDuration}s`)
 
     // Log failure summary
     if (failures.length > 0) {

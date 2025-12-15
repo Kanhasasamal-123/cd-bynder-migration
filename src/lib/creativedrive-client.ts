@@ -84,6 +84,11 @@ export interface AssetWithPublicUrl {
   };
 }
 
+export interface SearchAssetsResult {
+  assets: AssetWithPublicUrl[];
+  total: number;
+}
+
 export class CreativeDriveClient {
   private credentials: CreativeDriveCredentials;
   private maxRetries: number = 3;
@@ -224,7 +229,7 @@ export class CreativeDriveClient {
   /**
    * Fetch assets with public URLs from a folder (with pagination)
    */
-  async searchAssets({ divisions = [], folderId = '', dateRange, query, options = {} }: SearchParams): Promise<{ assets: AssetWithPublicUrl[]; total: number }> {
+  async searchAssets({ divisions = [], folderId = '', dateRange, query, options = {} }: SearchParams): Promise<SearchAssetsResult> {
     const { limit = 50, offset = 0 } = options;
 
     const payload: any = {

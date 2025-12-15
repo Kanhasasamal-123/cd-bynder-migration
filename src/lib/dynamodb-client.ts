@@ -1,5 +1,5 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, PutCommand, BatchGetCommand } from '@aws-sdk/lib-dynamodb';
 import { AssetMetadata } from './creativedrive-client';
 
 const dynamoClient = new DynamoDBClient({});
@@ -52,6 +52,76 @@ export async function putAssetRecord(
   });
 
   await docClient.send(command);
+}
+
+export interface ExistingAssetStatus {
+  assetId: string;
+  exists: boolean;
+  status?: string;
+}
+
+/**
+ * Batch check which assets already exist in DynamoDB and their status.
+ * DynamoDB BatchGetItem supports up to 100 items per call.
+ */
+export async function batchCheckAssetStatus(
+  tableName: string,
+  assetIds: string[]
+): Promise<Map<string, ExistingAssetStatus>> {
+  const results = new Map<string, ExistingAssetStatus>();
+  
+  if (assetIds.length === 0) {
+    return results;
+  }
+
+  // DynamoDB BatchGetItem limit is 100 items
+  const BATCH_SIZE = 100;
+  
+  for (let i = 0; i < assetIds.length; i += BATCH_SIZE) {
+    const batchIds = assetIds.slice(i, i + BATCH_SIZE);
+    
+    const keys = batchIds.map(id => ({ creativeDriveAssetId: String(id) }));
+    
+    try {
+      const response = await docClient.send(new BatchGetCommand({
+        RequestItems: {
+          [tableName]: {
+            Keys: keys,
+            ProjectionExpression: 'creativeDriveAssetId, #status',
+            ExpressionAttributeNames: { '#status': 'status' },
+          },
+        },
+      }));
+
+      // Process found items
+      const items = response.Responses?.[tableName] || [];
+      for (const item of items) {
+        const assetId = item.creativeDriveAssetId as string;
+        results.set(assetId, {
+          assetId,
+          exists: true,
+          status: item.status as string | undefined,
+        });
+      }
+
+      // Mark missing items as not existing
+      for (const id of batchIds) {
+        if (!results.has(id)) {
+          results.set(id, { assetId: id, exists: false });
+        }
+      }
+    } catch (error) {
+      // On error, assume items don't exist (will be checked individually during write)
+      console.error(`BatchGetCommand failed for batch starting at ${i}: ${error}`);
+      for (const id of batchIds) {
+        if (!results.has(id)) {
+          results.set(id, { assetId: id, exists: false });
+        }
+      }
+    }
+  }
+
+  return results;
 }
 
 /**
@@ -141,40 +211,6 @@ export async function putCreativeDriveAssetRecord(
     fallback: options.publicUrl ?? asset.attributes.meta?.image_origin ?? ''
   });
 
-  console.log(`Checking existing record for asset ${asset.attributes.id} in table ${tableName}`);
-  
-  const existingRecord = await docClient.send(
-    new GetCommand({
-      TableName: tableName,
-      Key: { creativeDriveAssetId: String(asset.attributes.id) },
-    })
-  );
-
-  const currentStatus = existingRecord.Item?.status;
-  const requestedMode = options.migrationMode ?? 'delta';
-  
-  console.log(`Existing record check: exists=${!!existingRecord.Item}, status=${currentStatus}, mode=${requestedMode}`);
-
-  if (
-    existingRecord.Item &&
-    requestedMode === 'delta' &&
-    currentStatus &&
-    currentStatus !== 'PENDING'
-  ) {
-    console.log(
-      `Skipping asset ${asset.attributes.id} because it's already ${currentStatus} and mode is delta.`
-    );
-    return false;
-  }
-
-  if (existingRecord.Item && requestedMode === 'full') {
-    console.log(
-      `Overwriting asset ${asset.attributes.id} (full mode) and resetting status to PENDING`
-    );
-  }
-
-  console.log(`Writing asset ${asset.attributes.id} to DynamoDB...`);
-  
   await putAssetRecord(tableName, {
     creativeDriveAssetId: String(asset.attributes.id),
     status: options.status ?? 'PENDING',
@@ -189,7 +225,6 @@ export async function putCreativeDriveAssetRecord(
     migrationMode: options.migrationMode ?? 'delta'
   });
 
-  console.log(`Successfully wrote asset ${asset.attributes.id} to DynamoDB`);
   return true;
 }
 
