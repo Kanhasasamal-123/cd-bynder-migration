@@ -224,97 +224,25 @@ pipelines:
             - echo "Payload:$PAYLOAD"
             - echo ""
 
-            # Invoke Lambda
+            # Invoke Lambda (async Event invocation)
             - |
-              RESPONSE=$(aws lambda invoke \
+              STATUS_CODE=$(aws lambda invoke \
                 --function-name $INGEST_LAMBDA \
+                --invocation-type Event \
                 --payload "$PAYLOAD" \
                 --region $AWS_DEFAULT_REGION \
                 --cli-binary-format raw-in-base64-out \
-                response.json)
+                --output text \
+                --query 'StatusCode' \
+                /dev/null)
 
-            - echo "Lambda Response Metadata:"
-            - echo "$RESPONSE"
-            - echo ""
+              echo "Lambda Status Code: $STATUS_CODE"
 
-            # Check if Lambda invocation failed
-            - |
-              if echo "$RESPONSE" | grep -q '"FunctionError"'; then
-                echo "❌ Lambda invocation failed"
-                echo "$RESPONSE"
-                if [ -f response.json ]; then
-                  echo ""
-                  echo "Error details:"
-                  cat response.json
-                fi
-                exit 1
-              fi
-
-            # Check response payload
-            - |
-              if [ -f response.json ]; then
-                echo "Lambda Output:"
-                cat response.json
-                echo ""
-
-                # Check for errors in response payload
-                if grep -q "errorMessage" response.json; then
-                  echo "❌ Lambda execution failed"
-                  cat response.json
-                  exit 1
-                fi
-
-                # Check for error status codes
-                if grep -q '"statusCode":\s*5[0-9][0-9]' response.json; then
-                  echo "❌ Lambda returned error status code"
-                  cat response.json
-                  exit 1
-                fi
-
+              if [ "$STATUS_CODE" = "202" ]; then
                 echo "✅ Migration started successfully"
               else
-                echo "⚠️  Warning: response.json not found"
+                echo "❌ Lambda invocation failed with status code: $STATUS_CODE"
                 exit 1
               fi
 
-            # Check DynamoDB table
-            - echo "=========================================="
-            - echo "Checking Migration Status"
-            - echo "=========================================="
-            - |
-              ITEM_COUNT=$(aws dynamodb scan \
-                --table-name dam-migration-tracker-prod \
-                --select COUNT \
-                --region $AWS_DEFAULT_REGION \
-                --query 'Count' \
-                --output text)
-
-            - echo "Total items in migration tracker:$ITEM_COUNT"
-            - echo ""
-
-            # Get status breakdown
-            - echo "Status breakdown:"
-            - |
-              aws dynamodb scan \
-                --table-name dam-migration-tracker-prod \
-                --region $AWS_DEFAULT_REGION \
-                --projection-expression "#status" \
-                --expression-attribute-names '{"#status":"status"}' \
-                --query 'Items[*].status.S' \
-                --output text | sort | uniq -c
-
-            # Migration summary
-            - echo ""
-            - echo "=========================================="
-            - echo "Migration Summary"
-            - echo "=========================================="
-            - echo ""
-            - echo "✅ Ingest Lambda invoked successfully"
-            - echo "📊 Check CloudWatch Logs for details:"
-            - echo "   - Ingest:/aws/lambda/dam-migration-ingest-prod"
-            - echo "   - Processor:/aws/lambda/dam-migration-processor-prod"
-            - echo ""
-            - echo "🗄️  DynamoDB Table:dam-migration-tracker-prod"
-            - echo "📦 S3 Bucket:dam-migration-assets-prod"
-            - echo ""
 
