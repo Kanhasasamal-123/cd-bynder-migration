@@ -92,6 +92,8 @@ describe('AssetMigrationProcessorLambda', () => {
           metadata: {
             style_number: 'ST123',
             color_code: 'CC123',
+            angle_code: 'A01',
+            filename: 'ST123-CC123_A01.tif',
           },
         },
       })
@@ -231,6 +233,8 @@ describe('AssetMigrationProcessorLambda', () => {
           metadata: {
             style_number: 'ST123',
             color_code: 'CC123',
+            angle_code: 'A01',
+            filename: 'ST123-CC123_A01.tif',
           },
         },
       })
@@ -469,6 +473,8 @@ describe('AssetMigrationProcessorLambda', () => {
           metadata: {
             style_number: 'ST123',
             color_code: 'CC123',
+            angle_code: 'A01',
+            filename: 'ST123-CC123_A01.tif',
           },
         },
       })
@@ -617,6 +623,8 @@ describe('AssetMigrationProcessorLambda', () => {
           metadata: {
             style_number: 'ST123',
             color_code: 'CC123',
+            angle_code: 'A01',
+            filename: 'ST123-CC123_A01.tif',
           },
         },
       })
