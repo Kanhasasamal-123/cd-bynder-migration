@@ -54,9 +54,6 @@ describe('AssetMigrationProcessorLambda', () => {
   });
 
   it('should process asset and update status to UPLOADED', async () => {
-    // No existing Bynder asset
-    mockAxiosGet.mockResolvedValueOnce({ data: [] });
-
     const mockEvent: DynamoDBStreamEvent = {
       Records: [
         {
@@ -230,6 +227,7 @@ describe('AssetMigrationProcessorLambda', () => {
           extension: 'tif',
           sourceUrl: 'https://cdn.example.com/assets/test.tif',
           publicUrl: 'https://cdn.example.com/assets/test.tif',
+          bynderId: 'existing-bynder-id', // Existing Bynder asset to update
           metadata: {
             style_number: 'ST123',
             color_code: 'CC123',
@@ -243,11 +241,6 @@ describe('AssetMigrationProcessorLambda', () => {
     // Bynder OAuth token
     mockAxiosPost.mockResolvedValueOnce({
       data: { access_token: 'test-token', token_type: 'bearer', expires_in: 3600 },
-    });
-
-    // Existing media search result
-    mockAxiosGet.mockResolvedValueOnce({
-      data: [{ id: 'existing-bynder-id' }],
     });
 
     // Mock axios download from CreativeDrive
@@ -437,7 +430,6 @@ describe('AssetMigrationProcessorLambda', () => {
   });
 
   it('should use correct chunk filename format when registering chunks', async () => {
-    mockAxiosGet.mockResolvedValueOnce({ data: [] });
     const mockEvent: DynamoDBStreamEvent = {
       Records: [
         {
@@ -587,7 +579,6 @@ describe('AssetMigrationProcessorLambda', () => {
   });
 
   it('should handle 500 error from Bynder chunk registration', async () => {
-    mockAxiosGet.mockResolvedValueOnce({ data: [] });
     const mockEvent: DynamoDBStreamEvent = {
       Records: [
         {

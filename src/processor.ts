@@ -110,19 +110,8 @@ async function processAsset(creativeDriveAssetId: string): Promise<void> {
       originalFilename: record.originalFilename,
       publicUrl: record.publicUrl,
       metadata: record.metadata,
+      existingBynderId: record.bynderId,
     };
-
-    if (asset.metadata?.style_number || asset.metadata?.color_code || asset.metadata?.angle_code) {
-      console.log(`Skipping asset ${creativeDriveAssetId} (missing style number, color code, or angle code)`);
-
-      const [styleNumberColorCode, angleCode] = asset.metadata.filename.split('.')[0].split('_');
-      const [styleNumber, colorCode] = styleNumberColorCode.split('-');
-
-      if (styleNumber != asset.metadata?.style_number || colorCode != asset.metadata?.color_code || angleCode != asset.metadata?.angle_code) {
-        const errorMessage = `Bad data: Filename ${asset.metadata.filename} is not a match for style number ${styleNumber}, color code ${colorCode}, angle code ${angleCode}`;
-        await updateAssetStatus(creativeDriveAssetId, 'FAILED', { errorMessage });
-      }
-    }
 
     const result = await migrationService.migrateAsset(asset, {
       onProgress: (progress) => {

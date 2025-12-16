@@ -24,6 +24,7 @@ export interface MigrationAsset {
   originalFilename: string;
   publicUrl: string;
   metadata?: Record<string, string>;
+  existingBynderId?: string;
 }
 
 export interface MigrationOptions {
@@ -45,20 +46,10 @@ export class MigrationService {
   async migrateAsset(asset: MigrationAsset, options: MigrationOptions = {}): Promise<MigrationResult> {
     const { onProgress } = options;
 
-    let existingBynderId: string | null = null;
-    if (!asset.metadata?.style_number || !asset.metadata?.color_code) {
-      throw new Error('Style number and color code are required');
-    }
-
-    existingBynderId = await this.bynderClient.findMedia(
-      asset.metadata?.style_number,
-      asset.metadata?.color_code,
-      asset.metadata?.angle_code
-    );
-    if (existingBynderId) {
+    if (asset.existingBynderId) {
       onProgress?.({
         stage: 'update',
-        message: `Creating new version for Bynder asset ${existingBynderId}`,
+        message: `Creating new version for Bynder asset ${asset.existingBynderId}`,
         details: { style_number: asset.metadata?.style_number, 
           color_code: asset.metadata?.color_code,
           },
@@ -102,19 +93,19 @@ export class MigrationService {
             },
           });
         },
-        mediaId: existingBynderId ?? undefined,
+        mediaId: asset.existingBynderId ?? undefined,
       }
     );
 
     onProgress?.({
       stage: 'complete',
-      message: existingBynderId
-        ? `Bynder asset ${existingBynderId} updated with new version`
+      message: asset.existingBynderId
+        ? `Bynder asset ${asset.existingBynderId} updated with new version`
         : `Migration completed successfully`,
       details: {
         creativeDriveAssetId: asset.creativeDriveAssetId,
         bynderId,
-        mode: existingBynderId ? 'update' : 'create',
+        mode: asset.existingBynderId ? 'update' : 'create',
       },
     });
 
