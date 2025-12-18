@@ -186,6 +186,7 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
+                  - dynamodb:BatchGetItem
                   - dynamodb:PutItem
                   - dynamodb:GetItem
                 Resource: !GetAtt MigrationTrackerTable.Arn
@@ -222,7 +223,6 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - dynamodb:BatchGetItem
                   - dynamodb:GetItem
                   - dynamodb:UpdateItem
                   - dynamodb:GetRecords
