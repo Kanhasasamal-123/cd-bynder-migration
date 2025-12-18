@@ -222,6 +222,7 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
+                  - dynamodb:BatchGetItem
                   - dynamodb:GetItem
                   - dynamodb:UpdateItem
                   - dynamodb:GetRecords
