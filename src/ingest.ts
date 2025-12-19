@@ -63,6 +63,7 @@ interface FetchedAsset {
   folder_id: string;
   division_id: string;
   publicUrl: string;
+  existingBynderId?: string;
 }
 
 interface FetchAllAssetsParams {
@@ -336,9 +337,23 @@ export const handler: Handler = async (event: IngestEvent) => {
       assetsToProcess = fetchedAssets;
       console.log(`[DRY-RUN] Skipping DynamoDB check, will process all ${fetchedAssets.length} assets`);
     } else if (mode === 'full') {
-      // In full mode, process all assets (will overwrite existing)
-      assetsToProcess = fetchedAssets;
-      console.log(`Full mode: will process all ${fetchedAssets.length} assets (overwriting existing)`);
+      // In full mode, process all assets but preserve existing bynderId
+      const assetIds = fetchedAssets.map(a => a.id);
+      console.log(`Full mode: checking ${assetIds.length} assets for existing bynderId...`);
+      
+      const existingStatus = await batchCheckAssetStatus(getTableName(), assetIds);
+      
+      let withExistingBynderId = 0;
+      for (const asset of fetchedAssets) {
+        const status = existingStatus.get(asset.id);
+        if (status?.exists && status.bynderId) {
+          asset.existingBynderId = status.bynderId;
+          withExistingBynderId++;
+        }
+        assetsToProcess.push(asset);
+      }
+      
+      console.log(`Full mode: will process all ${fetchedAssets.length} assets (${withExistingBynderId} have existing bynderId to preserve)`);
     } else {
       // Delta mode: check which assets already exist and skip non-PENDING ones
       const assetIds = fetchedAssets.map(a => a.id);
@@ -469,7 +484,8 @@ export const handler: Handler = async (event: IngestEvent) => {
           return putCreativeDriveAssetRecord(getTableName(), assetRecord, metadata || undefined, {
             status: 'PENDING',
             migrationMode: mode,
-            publicUrl: asset.publicUrl
+            publicUrl: asset.publicUrl,
+            bynderId: asset.existingBynderId
           })
             .then(inserted => ({ asset, inserted, error: null as Error | null }))
             .catch(error => ({ asset, inserted: false, error: error as Error }));

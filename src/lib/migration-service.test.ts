@@ -15,7 +15,6 @@ describe('MigrationService', () => {
   function createService(overrides?: {
     uploadFile?: jest.Mock;
     downloadAsset?: jest.Mock;
-    findMedia?: jest.Mock;
   }) {
     const creativeDriveClient = {
       downloadAsset: overrides?.downloadAsset || jest.fn().mockResolvedValue(Buffer.from('file')),
@@ -23,8 +22,6 @@ describe('MigrationService', () => {
 
     const bynderClient = {
       uploadFile: overrides?.uploadFile || jest.fn().mockResolvedValue('bynder-123'),
-      findMedia: overrides?.findMedia || jest.fn().mockResolvedValue(null),
-      extractMetadataFromFilename: jest.fn().mockReturnValue({ styleNumber: '', colorCode: '' }),
     };
 
     return {
@@ -56,27 +53,24 @@ describe('MigrationService', () => {
     expect(progressSpy).toHaveBeenCalled();
   });
 
-  it('creates a new version when findMedia returns existing Bynder ID', async () => {
-    const findMediaMock = jest.fn().mockResolvedValue('existing-bynder-id');
-    const { service, creativeDriveClient, bynderClient } = createService({
-      findMedia: findMediaMock,
-    });
+  it('creates a new version when existingBynderId is provided', async () => {
+    const { service, creativeDriveClient, bynderClient } = createService();
+
+    const assetWithExistingBynderId: MigrationAsset = {
+      ...baseAsset,
+      existingBynderId: 'existing-bynder-id',
+    };
 
     const progressSpy = jest.fn();
-    const result = await service.migrateAsset(baseAsset, {
+    const result = await service.migrateAsset(assetWithExistingBynderId, {
       onProgress: progressSpy,
     });
 
-    expect(findMediaMock).toHaveBeenCalledWith(
-      baseAsset.metadata?.style_number,
-      baseAsset.metadata?.color_code,
-      baseAsset.metadata?.angle_code
-    );
-    expect(creativeDriveClient.downloadAsset).toHaveBeenCalledWith(baseAsset.publicUrl);
+    expect(creativeDriveClient.downloadAsset).toHaveBeenCalledWith(assetWithExistingBynderId.publicUrl);
     expect(bynderClient.uploadFile).toHaveBeenCalledWith(
       expect.any(Buffer),
-      baseAsset.originalFilename,
-      baseAsset.metadata || {},
+      assetWithExistingBynderId.originalFilename,
+      assetWithExistingBynderId.metadata || {},
       expect.objectContaining({ mediaId: 'existing-bynder-id' })
     );
     expect(result.bynderId).toBe('bynder-123');
