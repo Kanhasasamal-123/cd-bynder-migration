@@ -95,11 +95,52 @@ export class BynderClient {
     }
   }
 
-  private buildMetapropertiesPayload(assetMetadata: Record<string, string>): Record<string, string> {
+  /**
+   * Extract Style_Number and RLM_NRF_Color_Code from filename
+   * Filename format: STYLE_NUMBER-COLOR_CODE_SUFFIX.ext (e.g., "49F5RMFS2B-0848_2.tif" or "MK-2258U-0255.tif")
+   */
+  private extractMetadataFromFilename(filename: string): { styleNumber: string; colorCode: string } {
+    const lastDashIndex = filename.lastIndexOf('-');
+    const underscoreIndex = filename.indexOf('_');
+    const dotIndex = filename.lastIndexOf('.');
+
+    if (lastDashIndex === -1) {
+      return { styleNumber: '', colorCode: '' };
+    }
+
+    const styleNumber = filename.substring(0, lastDashIndex);
+    
+    // Color code ends at underscore if present, otherwise at the file extension
+    const colorCodeEndIndex = underscoreIndex !== -1 ? underscoreIndex : dotIndex;
+    const colorCode = colorCodeEndIndex !== -1 
+      ? filename.substring(lastDashIndex + 1, colorCodeEndIndex)
+      : filename.substring(lastDashIndex + 1);
+
+    return { styleNumber, colorCode };
+  }
+
+  private buildMetapropertiesPayload(assetMetadata: Record<string, string>, filename: string): Record<string, string> {
     const metapropertiesPayload: Record<string, string> = {};
 
-    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['style_number'] || '', 'Style_Number');
-    this.mapFieldToPayload(metapropertiesPayload, assetMetadata['color_code'] || '', 'RLM_NRF_Color_Code');
+    // Extract fallback values from filename
+    const filenameMetadata = this.extractMetadataFromFilename(filename);
+
+    // Use metadata values, falling back to filename-extracted values if empty
+    let styleNumber = assetMetadata['style_number'] || '';
+    let colorCode = assetMetadata['color_code'] || '';
+
+    // If style_number is empty, use filename-derived value
+    if (!styleNumber) {
+      styleNumber = filenameMetadata.styleNumber;
+    }
+
+    // If color_code is empty or less than 3 digits, use filename-derived value
+    if (!colorCode || colorCode.length < 3) {
+      colorCode = filenameMetadata.colorCode;
+    }
+
+    this.mapFieldToPayload(metapropertiesPayload, styleNumber, 'Style_Number');
+    this.mapFieldToPayload(metapropertiesPayload, colorCode, 'RLM_NRF_Color_Code');
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['angle_code'] || '', 'Ecom_Angle_Code');
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['angle_name'] || '', 'Angle_Name');
 
@@ -178,7 +219,8 @@ export class BynderClient {
 
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['model_name'] || '', 'Recognized_Faces');
 
-    const indexedProductString = assetMetadata['style_number'] + '-' + assetMetadata['color_code'];
+    // Use the resolved styleNumber and colorCode (which may have been derived from filename)
+    const indexedProductString = styleNumber + '-' + colorCode;
     this.mapFieldToPayload(metapropertiesPayload, indexedProductString, 'Style_Number_RLM_Code');
 
     return metapropertiesPayload;
@@ -397,7 +439,7 @@ export class BynderClient {
 
     // Step 6: Save media in Bynder
     await this.ensureMetapropertiesLoaded(authHeader);
-    const metapropertiesPayload = this.buildMetapropertiesPayload(assetMetadata);
+    const metapropertiesPayload = this.buildMetapropertiesPayload(assetMetadata, filename);
 
     const formData = new FormData();
 
@@ -477,12 +519,12 @@ export class BynderClient {
     return media.id || null;
   }
 
-  async updateMediaMetadata(mediaId: string, assetMetadata: Record<string, string>): Promise<void> {
+  async updateMediaMetadata(mediaId: string, assetMetadata: Record<string, string>, filename: string = ''): Promise<void> {
     const accessToken = await this.getAccessToken();
     const authHeader = { Authorization: `Bearer ${accessToken}` };
 
     await this.ensureMetapropertiesLoaded(authHeader);
-    const metapropertiesPayload = this.buildMetapropertiesPayload(assetMetadata);
+    const metapropertiesPayload = this.buildMetapropertiesPayload(assetMetadata, filename);
 
     const formData = new FormData();
     formData.append('mediaid', mediaId);
