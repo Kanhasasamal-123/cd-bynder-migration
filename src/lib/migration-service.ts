@@ -45,15 +45,20 @@ export class MigrationService {
   async migrateAsset(asset: MigrationAsset, options: MigrationOptions = {}): Promise<MigrationResult> {
     const { onProgress } = options;
 
-    let existingBynderId: string | null = null;
-    if (!asset.metadata?.style_number || !asset.metadata?.color_code) {
-      throw new Error('Style number and color code are required');
+    // Apply filename fallback for style_number and color_code
+    const filenameMetadata = this.bynderClient.extractMetadataFromFilename(asset.originalFilename);
+    
+    // Ensure metadata object exists
+    if (!asset.metadata) {
+      asset.metadata = {};
     }
 
+    let existingBynderId: string | null = null;
+
     existingBynderId = await this.bynderClient.findMedia(
-      asset.metadata?.style_number,
-      asset.metadata?.color_code,
-      asset.metadata?.angle_code
+      asset.metadata.style_number || filenameMetadata.styleNumber,
+      asset.metadata.color_code || filenameMetadata.colorCode,
+      asset.metadata.angle_code || filenameMetadata.angleCode
     );
     if (existingBynderId) {
       onProgress?.({

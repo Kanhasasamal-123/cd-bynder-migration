@@ -99,13 +99,13 @@ export class BynderClient {
    * Extract Style_Number and RLM_NRF_Color_Code from filename
    * Filename format: STYLE_NUMBER-COLOR_CODE_SUFFIX.ext (e.g., "49F5RMFS2B-0848_2.tif" or "MK-2258U-0255.tif")
    */
-  private extractMetadataFromFilename(filename: string): { styleNumber: string; colorCode: string } {
+  extractMetadataFromFilename(filename: string): { styleNumber: string; colorCode: string, angleCode: string } {
     const lastDashIndex = filename.lastIndexOf('-');
     const underscoreIndex = filename.indexOf('_');
     const dotIndex = filename.lastIndexOf('.');
 
     if (lastDashIndex === -1) {
-      return { styleNumber: '', colorCode: '' };
+      return { styleNumber: '', colorCode: '', angleCode: '' };
     }
 
     const styleNumber = filename.substring(0, lastDashIndex);
@@ -116,7 +116,9 @@ export class BynderClient {
       ? filename.substring(lastDashIndex + 1, colorCodeEndIndex)
       : filename.substring(lastDashIndex + 1);
 
-    return { styleNumber, colorCode };
+    const angleCode = filename.substring(lastDashIndex + 1, dotIndex);
+
+    return { styleNumber, colorCode, angleCode };
   }
 
   private buildMetapropertiesPayload(assetMetadata: Record<string, string>): Record<string, string> {

@@ -24,6 +24,7 @@ describe('MigrationService', () => {
     const bynderClient = {
       uploadFile: overrides?.uploadFile || jest.fn().mockResolvedValue('bynder-123'),
       findMedia: overrides?.findMedia || jest.fn().mockResolvedValue(null),
+      extractMetadataFromFilename: jest.fn().mockReturnValue({ styleNumber: '', colorCode: '' }),
     };
 
     return {
