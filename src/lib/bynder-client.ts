@@ -119,25 +119,11 @@ export class BynderClient {
     return { styleNumber, colorCode };
   }
 
-  private buildMetapropertiesPayload(assetMetadata: Record<string, string>, filename: string): Record<string, string> {
+  private buildMetapropertiesPayload(assetMetadata: Record<string, string>): Record<string, string> {
     const metapropertiesPayload: Record<string, string> = {};
 
-    // Extract fallback values from filename
-    const filenameMetadata = this.extractMetadataFromFilename(filename);
-
-    // Use metadata values, falling back to filename-extracted values if empty
-    let styleNumber = assetMetadata['style_number'] || '';
-    let colorCode = assetMetadata['color_code'] || '';
-
-    // If style_number is empty, use filename-derived value
-    if (!styleNumber) {
-      styleNumber = filenameMetadata.styleNumber;
-    }
-
-    // If color_code is empty or less than 3 digits, use filename-derived value
-    if (!colorCode || colorCode.length < 3) {
-      colorCode = filenameMetadata.colorCode;
-    }
+    const styleNumber = assetMetadata['style_number'] || '';
+    const colorCode = assetMetadata['color_code'] || '';
 
     this.mapFieldToPayload(metapropertiesPayload, styleNumber, 'Style_Number');
     this.mapFieldToPayload(metapropertiesPayload, colorCode, 'RLM_NRF_Color_Code');
@@ -219,7 +205,6 @@ export class BynderClient {
 
     this.mapFieldToPayload(metapropertiesPayload, assetMetadata['model_name'] || '', 'Recognized_Faces');
 
-    // Use the resolved styleNumber and colorCode (which may have been derived from filename)
     const indexedProductString = styleNumber + '-' + colorCode;
     this.mapFieldToPayload(metapropertiesPayload, indexedProductString, 'Style_Number_RLM_Code');
 
@@ -439,7 +424,21 @@ export class BynderClient {
 
     // Step 6: Save media in Bynder
     await this.ensureMetapropertiesLoaded(authHeader);
-    const metapropertiesPayload = this.buildMetapropertiesPayload(assetMetadata, filename);
+
+    // Apply filename fallback for style_number, color_code, and angle_code
+    const filenameMetadata = this.extractMetadataFromFilename(filename);
+
+    // If style_number is empty, use filename-derived value
+    if (!assetMetadata['style_number']) {
+      assetMetadata['style_number'] = filenameMetadata.styleNumber;
+    }
+
+    // If color_code is empty or less than 3 digits, use filename-derived value
+    if (!assetMetadata['color_code'] || assetMetadata['color_code'].length < 3) {
+      assetMetadata['color_code'] = filenameMetadata.colorCode;
+    }
+
+    const metapropertiesPayload = this.buildMetapropertiesPayload(assetMetadata);
 
     const formData = new FormData();
 
@@ -519,12 +518,12 @@ export class BynderClient {
     return media.id || null;
   }
 
-  async updateMediaMetadata(mediaId: string, assetMetadata: Record<string, string>, filename: string = ''): Promise<void> {
+  async updateMediaMetadata(mediaId: string, assetMetadata: Record<string, string>): Promise<void> {
     const accessToken = await this.getAccessToken();
     const authHeader = { Authorization: `Bearer ${accessToken}` };
 
     await this.ensureMetapropertiesLoaded(authHeader);
-    const metapropertiesPayload = this.buildMetapropertiesPayload(assetMetadata, filename);
+    const metapropertiesPayload = this.buildMetapropertiesPayload(assetMetadata);
 
     const formData = new FormData();
     formData.append('mediaid', mediaId);
