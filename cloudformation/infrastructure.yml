@@ -188,6 +188,7 @@ Resources:
                 Action:
                   - dynamodb:BatchGetItem
                   - dynamodb:PutItem
+                  - dynamodb:UpdateItem
                   - dynamodb:GetItem
                 Resource: !GetAtt MigrationTrackerTable.Arn
               - Effect: Allow

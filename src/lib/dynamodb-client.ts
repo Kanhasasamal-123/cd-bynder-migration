@@ -1,5 +1,5 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, PutCommand, BatchGetCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, UpdateCommand, BatchGetCommand } from '@aws-sdk/lib-dynamodb';
 import { AssetMetadata } from './creativedrive-client';
 
 const dynamoClient = new DynamoDBClient({});
@@ -19,42 +19,45 @@ export interface DynamoAssetRecord {
   migrationMode?: 'full' | 'delta' | 'update';
   createdAt?: string;
   updatedAt?: string;
-  bynderId?: string;
 }
 
 /**
- * Write asset record to DynamoDB (insert or overwrite)
+ * Write asset record to DynamoDB using UpdateCommand.
+ * This preserves existing fields (like bynderId) that aren't being updated.
  */
-export async function putAssetRecord(
+export async function updateAssetRecord(
   tableName: string,
   record: DynamoAssetRecord
 ): Promise<void> {
   const now = new Date().toISOString();
 
-  const item: Record<string, any> = {
-    creativeDriveAssetId: record.creativeDriveAssetId,
-    status: record.status ?? 'PENDING',
-    originalFilename: record.originalFilename,
-    filesize: record.filesize,
-    extension: record.extension,
-    folderId: record.folderId,
-    divisionId: record.divisionId,
-    sourceUrl: record.sourceUrl,
-    publicUrl: record.publicUrl,
-    metadata: record.metadata ?? {},
-    migrationMode: record.migrationMode ?? 'delta',
-    createdAt: record.createdAt ?? now,
-    updatedAt: record.updatedAt ?? now
-  };
-
-  // Only include bynderId if it exists (preserve existing value)
-  if (record.bynderId) {
-    item.bynderId = record.bynderId;
-  }
-
-  const command = new PutCommand({
+  const command = new UpdateCommand({
     TableName: tableName,
-    Item: item
+    Key: {
+      creativeDriveAssetId: record.creativeDriveAssetId
+    },
+    UpdateExpression: `SET #status = :status, originalFilename = :originalFilename, 
+      filesize = :filesize, extension = :extension, folderId = :folderId, 
+      divisionId = :divisionId, sourceUrl = :sourceUrl, publicUrl = :publicUrl, 
+      metadata = :metadata, migrationMode = :migrationMode, 
+      updatedAt = :updatedAt, createdAt = if_not_exists(createdAt, :createdAt)`,
+    ExpressionAttributeNames: {
+      '#status': 'status'
+    },
+    ExpressionAttributeValues: {
+      ':status': record.status ?? 'PENDING',
+      ':originalFilename': record.originalFilename,
+      ':filesize': record.filesize,
+      ':extension': record.extension,
+      ':folderId': record.folderId,
+      ':divisionId': record.divisionId,
+      ':sourceUrl': record.sourceUrl,
+      ':publicUrl': record.publicUrl,
+      ':metadata': record.metadata ?? {},
+      ':migrationMode': record.migrationMode ?? 'delta',
+      ':createdAt': record.createdAt ?? now,
+      ':updatedAt': now
+    }
   });
 
   await docClient.send(command);
@@ -64,7 +67,6 @@ export interface ExistingAssetStatus {
   assetId: string;
   exists: boolean;
   status?: string;
-  bynderId?: string;
 }
 
 /**
@@ -94,7 +96,7 @@ export async function batchCheckAssetStatus(
         RequestItems: {
           [tableName]: {
             Keys: keys,
-            ProjectionExpression: 'creativeDriveAssetId, #status, bynderId',
+            ProjectionExpression: 'creativeDriveAssetId, #status',
             ExpressionAttributeNames: { '#status': 'status' },
           },
         },
@@ -108,7 +110,6 @@ export async function batchCheckAssetStatus(
           assetId,
           exists: true,
           status: item.status as string | undefined,
-          bynderId: item.bynderId as string | undefined,
         });
       }
 
@@ -192,18 +193,17 @@ interface CreativeDriveAssetLike {
   };
 }
 
-interface PutCreativeDriveAssetOptions {
+interface UpdateCreativeDriveAssetOptions {
   status?: string;
   migrationMode?: 'full' | 'delta' | 'update';
   publicUrl?: string;
-  bynderId?: string;
 }
 
-export async function putCreativeDriveAssetRecord(
+export async function updateCreativeDriveAssetRecord(
   tableName: string,
   asset: CreativeDriveAssetLike,
   metadata?: AssetMetadata[],
-  options: PutCreativeDriveAssetOptions = {}
+  options: UpdateCreativeDriveAssetOptions = {}
 ): Promise<boolean> {
   const metadataMap = metadataArrayToMap(metadata);
   const folderId =
@@ -220,7 +220,7 @@ export async function putCreativeDriveAssetRecord(
     fallback: options.publicUrl ?? asset.attributes.meta?.image_origin ?? ''
   });
 
-  await putAssetRecord(tableName, {
+  await updateAssetRecord(tableName, {
     creativeDriveAssetId: String(asset.attributes.id),
     status: options.status ?? 'PENDING',
     originalFilename: asset.attributes.original_filename,
@@ -231,8 +231,7 @@ export async function putCreativeDriveAssetRecord(
     sourceUrl,
     publicUrl: options.publicUrl ?? asset.attributes.meta?.image_origin ?? '',
     metadata: metadataMap,
-    migrationMode: options.migrationMode ?? 'delta',
-    bynderId: options.bynderId
+    migrationMode: options.migrationMode ?? 'delta'
   });
 
   return true;

@@ -46,6 +46,11 @@ export class MigrationService {
   async migrateAsset(asset: MigrationAsset, options: MigrationOptions = {}): Promise<MigrationResult> {
     const { onProgress } = options;
 
+    // Ensure metadata object exists
+    if (!asset.metadata) {
+      asset.metadata = {};
+    }
+
     if (asset.existingBynderId) {
       onProgress?.({
         stage: 'update',

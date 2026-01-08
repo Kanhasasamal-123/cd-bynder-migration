@@ -96,15 +96,15 @@ describe('AssetMigrationProcessorLambda', () => {
       })
       .mockResolvedValueOnce({}); // UpdateCommand (UPLOADED)
 
+    // Mock Bynder OAuth token
+    mockAxiosPost.mockResolvedValueOnce({
+      data: { access_token: 'test-token', token_type: 'bearer', expires_in: 3600 },
+    });
+
     // Mock axios download from CreativeDrive
     mockAxiosGet.mockResolvedValueOnce({
       data: Buffer.from('test data'),
       headers: { 'content-type': 'image/tiff' },
-    });
-
-    // Mock Bynder OAuth token
-    mockAxiosPost.mockResolvedValueOnce({
-      data: { access_token: 'test-token', token_type: 'bearer', expires_in: 3600 },
     });
 
     // Mock Bynder get endpoint
@@ -238,15 +238,15 @@ describe('AssetMigrationProcessorLambda', () => {
       })
       .mockResolvedValueOnce({}); // UpdateCommand (UPLOADED)
 
+    // Bynder OAuth token
+    mockAxiosPost.mockResolvedValueOnce({
+      data: { access_token: 'test-token', token_type: 'bearer', expires_in: 3600 },
+    });
+
     // Mock axios download from CreativeDrive
     mockAxiosGet.mockResolvedValueOnce({
       data: Buffer.from('test data'),
       headers: { 'content-type': 'image/tiff' },
-    });
-
-    // Bynder OAuth token
-    mockAxiosPost.mockResolvedValueOnce({
-      data: { access_token: 'test-token', token_type: 'bearer', expires_in: 3600 },
     });
 
     // Mock Bynder get endpoint
@@ -336,6 +336,10 @@ describe('AssetMigrationProcessorLambda', () => {
   });
 
   it('should handle processing errors and update status to FAILED', async () => {
+    // Mock Bynder OAuth token
+    mockAxiosPost.mockResolvedValueOnce({
+      data: { access_token: 'test-token', token_type: 'bearer', expires_in: 3600 },
+    });
     const mockEvent: DynamoDBStreamEvent = {
       Records: [
         {
@@ -470,15 +474,15 @@ describe('AssetMigrationProcessorLambda', () => {
       })
       .mockResolvedValueOnce({}); // UpdateCommand (UPLOADED)
 
+    // Mock Bynder OAuth token
+    mockAxiosPost.mockResolvedValueOnce({
+      data: { access_token: 'test-token', token_type: 'bearer', expires_in: 3600 },
+    });
+
     // Mock axios download from CreativeDrive
     mockAxiosGet.mockResolvedValueOnce({
       data: Buffer.from('test data'),
       headers: { 'content-type': 'image/tiff' },
-    });
-
-    // Mock Bynder OAuth token
-    mockAxiosPost.mockResolvedValueOnce({
-      data: { access_token: 'test-token', token_type: 'bearer', expires_in: 3600 },
     });
 
     // Mock Bynder get endpoint
@@ -499,6 +503,9 @@ describe('AssetMigrationProcessorLambda', () => {
     mockAxiosPost.mockResolvedValueOnce({ status: 202, statusText: 'OK' });
     // Mock S3 upload (chunk)
     mockAxiosPost.mockResolvedValueOnce({ status: 202, statusText: 'OK' });
+
+    // Mock Bynder register chunk
+    mockAxiosPost.mockResolvedValueOnce({ data: {} });
 
     // Mock Bynder finalize
     mockAxiosPost.mockResolvedValueOnce({ data: { importId: 'test-import-id' } });
@@ -619,15 +626,15 @@ describe('AssetMigrationProcessorLambda', () => {
       })
       .mockResolvedValueOnce({}); // UpdateCommand (FAILED)
 
+    // Mock Bynder OAuth token
+    mockAxiosPost.mockResolvedValueOnce({
+      data: { access_token: 'test-token', token_type: 'bearer', expires_in: 3600 },
+    });
+
     // Mock axios download from CreativeDrive
     mockAxiosGet.mockResolvedValueOnce({
       data: Buffer.from('test data'),
       headers: { 'content-type': 'image/tiff' },
-    });
-
-    // Mock Bynder OAuth token
-    mockAxiosPost.mockResolvedValueOnce({
-      data: { access_token: 'test-token', token_type: 'bearer', expires_in: 3600 },
     });
 
     // Mock Bynder get endpoint
