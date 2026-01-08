@@ -346,7 +346,8 @@ export const handler: Handler = async (event: IngestEvent) => {
       let pendingOrNew = 0;
       
       for (const asset of fetchedAssets) {
-        const status = existingStatus.get(asset.id);
+        const idStr = String(asset.id);
+        const status = existingStatus.get(idStr);
 
         console.log(`Asset ${asset.id} status: ${status?.status ?? 'not found'}`);
         
