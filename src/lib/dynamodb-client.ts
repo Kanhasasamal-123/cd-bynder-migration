@@ -91,6 +91,7 @@ export async function batchCheckAssetStatus(
     
     const keys = batchIds.map(id => ({ creativeDriveAssetId: String(id) }));
     
+    console.log(`Checking batch size ${batchIds.length} assets against DynamoDB...`);
     try {
       const response = await docClient.send(new BatchGetCommand({
         RequestItems: {
@@ -104,6 +105,7 @@ export async function batchCheckAssetStatus(
 
       // Process found items
       const items = response.Responses?.[tableName] || [];
+      console.log(`Found ${items.length} items in DynamoDB...`);
       for (const item of items) {
         const assetId = item.creativeDriveAssetId as string;
         results.set(assetId, {

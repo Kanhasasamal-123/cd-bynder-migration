@@ -334,7 +334,7 @@ export const handler: Handler = async (event: IngestEvent) => {
     if (mode === 'full') {
       // In full mode, process all assets (will overwrite existing)
       assetsToProcess = fetchedAssets;
-      console.log(`Full mode: will process all ${fetchedAssets.length} assets (overwriting existing)`);
+      console.log(`Full mode: will process all ${fetchedAssets.length} assets`);
     } else {
       // Delta mode: check which assets already exist and skip non-PENDING ones
       const assetIds = fetchedAssets.map(a => a.id);
