@@ -110,7 +110,6 @@ async function processAsset(creativeDriveAssetId: string): Promise<void> {
       originalFilename: record.originalFilename,
       publicUrl: record.publicUrl,
       metadata: record.metadata,
-      existingBynderId: record.bynderId,
     };
 
     const result = await migrationService.migrateAsset(asset, {

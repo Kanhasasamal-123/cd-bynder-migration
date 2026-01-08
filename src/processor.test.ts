@@ -96,15 +96,20 @@ describe('AssetMigrationProcessorLambda', () => {
       })
       .mockResolvedValueOnce({}); // UpdateCommand (UPLOADED)
 
+    // Mock Bynder OAuth token (for findMedia)
+    mockAxiosPost.mockResolvedValueOnce({
+      data: { access_token: 'test-token', token_type: 'bearer', expires_in: 3600 },
+    });
+
+    // Mock Bynder findMedia - no existing asset
+    mockAxiosGet.mockResolvedValueOnce({
+      data: [],
+    });
+
     // Mock axios download from CreativeDrive
     mockAxiosGet.mockResolvedValueOnce({
       data: Buffer.from('test data'),
       headers: { 'content-type': 'image/tiff' },
-    });
-
-    // Mock Bynder OAuth token
-    mockAxiosPost.mockResolvedValueOnce({
-      data: { access_token: 'test-token', token_type: 'bearer', expires_in: 3600 },
     });
 
     // Mock Bynder get endpoint
@@ -238,15 +243,20 @@ describe('AssetMigrationProcessorLambda', () => {
       })
       .mockResolvedValueOnce({}); // UpdateCommand (UPLOADED)
 
+    // Bynder OAuth token (for findMedia)
+    mockAxiosPost.mockResolvedValueOnce({
+      data: { access_token: 'test-token', token_type: 'bearer', expires_in: 3600 },
+    });
+
+    // Mock Bynder findMedia - returns existing asset
+    mockAxiosGet.mockResolvedValueOnce({
+      data: [{ id: 'existing-bynder-id' }],
+    });
+
     // Mock axios download from CreativeDrive
     mockAxiosGet.mockResolvedValueOnce({
       data: Buffer.from('test data'),
       headers: { 'content-type': 'image/tiff' },
-    });
-
-    // Bynder OAuth token
-    mockAxiosPost.mockResolvedValueOnce({
-      data: { access_token: 'test-token', token_type: 'bearer', expires_in: 3600 },
     });
 
     // Mock Bynder get endpoint
@@ -336,6 +346,12 @@ describe('AssetMigrationProcessorLambda', () => {
   });
 
   it('should handle processing errors and update status to FAILED', async () => {
+    // Mock Bynder OAuth token (for findMedia)
+    mockAxiosPost.mockResolvedValueOnce({
+      data: { access_token: 'test-token', token_type: 'bearer', expires_in: 3600 },
+    });
+    
+    mockAxiosGet.mockResolvedValueOnce({ data: [] });
     const mockEvent: DynamoDBStreamEvent = {
       Records: [
         {
@@ -470,15 +486,20 @@ describe('AssetMigrationProcessorLambda', () => {
       })
       .mockResolvedValueOnce({}); // UpdateCommand (UPLOADED)
 
+    // Mock Bynder OAuth token (for findMedia)
+    mockAxiosPost.mockResolvedValueOnce({
+      data: { access_token: 'test-token', token_type: 'bearer', expires_in: 3600 },
+    });
+
+    // Mock Bynder findMedia - no existing asset
+    mockAxiosGet.mockResolvedValueOnce({
+      data: [],
+    });
+
     // Mock axios download from CreativeDrive
     mockAxiosGet.mockResolvedValueOnce({
       data: Buffer.from('test data'),
       headers: { 'content-type': 'image/tiff' },
-    });
-
-    // Mock Bynder OAuth token
-    mockAxiosPost.mockResolvedValueOnce({
-      data: { access_token: 'test-token', token_type: 'bearer', expires_in: 3600 },
     });
 
     // Mock Bynder get endpoint
@@ -619,15 +640,20 @@ describe('AssetMigrationProcessorLambda', () => {
       })
       .mockResolvedValueOnce({}); // UpdateCommand (FAILED)
 
+    // Mock Bynder OAuth token (for findMedia)
+    mockAxiosPost.mockResolvedValueOnce({
+      data: { access_token: 'test-token', token_type: 'bearer', expires_in: 3600 },
+    });
+
+    // Mock Bynder findMedia - no existing asset
+    mockAxiosGet.mockResolvedValueOnce({
+      data: [],
+    });
+
     // Mock axios download from CreativeDrive
     mockAxiosGet.mockResolvedValueOnce({
       data: Buffer.from('test data'),
       headers: { 'content-type': 'image/tiff' },
-    });
-
-    // Mock Bynder OAuth token
-    mockAxiosPost.mockResolvedValueOnce({
-      data: { access_token: 'test-token', token_type: 'bearer', expires_in: 3600 },
     });
 
     // Mock Bynder get endpoint

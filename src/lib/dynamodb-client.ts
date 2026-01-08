@@ -19,7 +19,6 @@ export interface DynamoAssetRecord {
   migrationMode?: 'full' | 'delta' | 'update';
   createdAt?: string;
   updatedAt?: string;
-  bynderId?: string;
 }
 
 /**
@@ -31,7 +30,7 @@ export async function putAssetRecord(
 ): Promise<void> {
   const now = new Date().toISOString();
 
-  const item: Record<string, any> = {
+  const item = {
     creativeDriveAssetId: record.creativeDriveAssetId,
     status: record.status ?? 'PENDING',
     originalFilename: record.originalFilename,
@@ -47,11 +46,6 @@ export async function putAssetRecord(
     updatedAt: record.updatedAt ?? now
   };
 
-  // Only include bynderId if it exists (preserve existing value)
-  if (record.bynderId) {
-    item.bynderId = record.bynderId;
-  }
-
   const command = new PutCommand({
     TableName: tableName,
     Item: item
@@ -64,7 +58,6 @@ export interface ExistingAssetStatus {
   assetId: string;
   exists: boolean;
   status?: string;
-  bynderId?: string;
 }
 
 /**
@@ -94,7 +87,7 @@ export async function batchCheckAssetStatus(
         RequestItems: {
           [tableName]: {
             Keys: keys,
-            ProjectionExpression: 'creativeDriveAssetId, #status, bynderId',
+            ProjectionExpression: 'creativeDriveAssetId, #status',
             ExpressionAttributeNames: { '#status': 'status' },
           },
         },
@@ -108,7 +101,6 @@ export async function batchCheckAssetStatus(
           assetId,
           exists: true,
           status: item.status as string | undefined,
-          bynderId: item.bynderId as string | undefined,
         });
       }
 
@@ -196,7 +188,6 @@ interface PutCreativeDriveAssetOptions {
   status?: string;
   migrationMode?: 'full' | 'delta' | 'update';
   publicUrl?: string;
-  bynderId?: string;
 }
 
 export async function putCreativeDriveAssetRecord(
@@ -231,8 +222,7 @@ export async function putCreativeDriveAssetRecord(
     sourceUrl,
     publicUrl: options.publicUrl ?? asset.attributes.meta?.image_origin ?? '',
     metadata: metadataMap,
-    migrationMode: options.migrationMode ?? 'delta',
-    bynderId: options.bynderId
+    migrationMode: options.migrationMode ?? 'delta'
   });
 
   return true;
