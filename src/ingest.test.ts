@@ -283,6 +283,9 @@ describe('CreativeDriveIngestLambda', () => {
       },
     });
 
+    // Mock metadata fetch
+    mockAxiosGet.mockResolvedValueOnce({ data: { data: [] } });
+
     const result = await handler(
       { maxAssets: 10, divisionId: '45', dryRun: true },
       {} as any,
@@ -293,9 +296,9 @@ describe('CreativeDriveIngestLambda', () => {
     const body = JSON.parse(result.body);
     expect(body.dryRun).toBe(true);
     expect(body.totalAssetsIngested).toBe(1);
-    // In dry-run, no DynamoDB calls (skip batch check and writes)
-    expect(mockDynamoSend).not.toHaveBeenCalled();
-    // No metadata fetch in dry-run
-    expect(mockAxiosGet).not.toHaveBeenCalled();
+    // In dry-run, batch check is called but no writes
+    expect(mockDynamoSend).toHaveBeenCalledTimes(1); // Only BatchGet, no Update
+    // Metadata fetch should happen in dry-run
+    expect(mockAxiosGet).toHaveBeenCalled();
   });
 });

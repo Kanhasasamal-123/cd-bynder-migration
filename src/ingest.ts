@@ -331,11 +331,7 @@ export const handler: Handler = async (event: IngestEvent) => {
     
     let assetsToProcess: FetchedAsset[] = [];
     
-    if (isDryRun) {
-      // In dry run, process all assets
-      assetsToProcess = fetchedAssets;
-      console.log(`[DRY-RUN] Skipping DynamoDB check, will process all ${fetchedAssets.length} assets`);
-    } else if (mode === 'full') {
+    if (mode === 'full') {
       // In full mode, process all assets (will overwrite existing)
       assetsToProcess = fetchedAssets;
       console.log(`Full mode: will process all ${fetchedAssets.length} assets (overwriting existing)`);
@@ -388,13 +384,7 @@ export const handler: Handler = async (event: IngestEvent) => {
     
     const assetsWithMetadata: AssetWithMetadata[] = [];
     
-    if (isDryRun) {
-      // In dry run, skip metadata fetch
-      for (const asset of assetsToProcess) {
-        console.log(`[DRY-RUN] Would ingest asset ${asset.id} (${asset.original_filename})`);
-        assetsWithMetadata.push({ asset, metadata: null });
-      }
-    } else if (assetsToProcess.length === 0) {
+    if (assetsToProcess.length === 0) {
       console.log('No assets need processing, skipping metadata fetch');
     } else {
       // Fetch metadata in parallel batches
@@ -439,63 +429,58 @@ export const handler: Handler = async (event: IngestEvent) => {
     console.log('\n========== PHASE 3: Writing to DynamoDB ==========');
     const writeStartTime = Date.now();
     
-    if (isDryRun) {
-      totalAssetsIngested = assetsWithMetadata.length;
-      console.log(`[DRY-RUN] Would write ${totalAssetsIngested} assets to DynamoDB`);
-    } else {
-      for (let i = 0; i < assetsWithMetadata.length; i += WRITE_BATCH_SIZE) {
-        const batch = assetsWithMetadata.slice(i, i + WRITE_BATCH_SIZE);
-        const batchNum = Math.floor(i / WRITE_BATCH_SIZE) + 1;
-        const totalBatches = Math.ceil(assetsWithMetadata.length / WRITE_BATCH_SIZE);
+    for (let i = 0; i < assetsWithMetadata.length; i += WRITE_BATCH_SIZE) {
+      const batch = assetsWithMetadata.slice(i, i + WRITE_BATCH_SIZE);
+      const batchNum = Math.floor(i / WRITE_BATCH_SIZE) + 1;
+      const totalBatches = Math.ceil(assetsWithMetadata.length / WRITE_BATCH_SIZE);
+      
+      console.log(`Writing batch ${batchNum}/${totalBatches} (${batch.length} assets)...`);
+      
+      const writePromises = batch.map(({ asset, metadata }) => {
+        const assetRecord: Asset = {
+          type: 'asset',
+          attributes: {
+            id: asset.id,
+            original_filename: asset.original_filename,
+            original_filesize: asset.original_filesize,
+            extension: asset.extension,
+            ts_folder_id: asset.folder_id,
+            division_id: asset.division_id,
+            url: '',
+            path: '',
+            filename: asset.original_filename,
+          },
+        };
         
-        console.log(`Writing batch ${batchNum}/${totalBatches} (${batch.length} assets)...`);
-        
-        const writePromises = batch.map(({ asset, metadata }) => {
-          const assetRecord: Asset = {
-            type: 'asset',
-            attributes: {
-              id: asset.id,
-              original_filename: asset.original_filename,
-              original_filesize: asset.original_filesize,
-              extension: asset.extension,
-              ts_folder_id: asset.folder_id,
-              division_id: asset.division_id,
-              url: '',
-              path: '',
-              filename: asset.original_filename,
-            },
-          };
-          
-          return updateCreativeDriveAssetRecord(getTableName(), assetRecord, metadata || undefined, {
-            status: 'PENDING',
-            migrationMode: mode,
-            publicUrl: asset.publicUrl
-          })
-            .then(inserted => ({ asset, inserted, error: null as Error | null }))
-            .catch(error => ({ asset, inserted: false, error: error as Error }));
-        });
-        
-        const results = await Promise.all(writePromises);
-        
-        for (const { asset, inserted, error } of results) {
-          if (error) {
-            console.error(`Failed to write ${asset.id}: ${error.message}`);
-            failures.push({
-              assetId: asset.id,
-              filename: asset.original_filename,
-              divisionId,
-              error: error.message,
-              stage: 'write_dynamodb',
-            });
-          } else if (inserted) {
-            totalAssetsIngested++;
-          } else {
-            totalSkipped++;
-          }
+        return updateCreativeDriveAssetRecord(getTableName(), assetRecord, metadata || undefined, {
+          status: 'PENDING',
+          migrationMode: mode,
+          publicUrl: asset.publicUrl,
+        }, isDryRun)
+          .then(inserted => ({ asset, inserted, error: null as Error | null }))
+          .catch(error => ({ asset, inserted: false, error: error as Error }));
+      });
+      
+      const results = await Promise.all(writePromises);
+      
+      for (const { asset, inserted, error } of results) {
+        if (error) {
+          console.error(`Failed to write ${asset.id}: ${error.message}`);
+          failures.push({
+            assetId: asset.id,
+            filename: asset.original_filename,
+            divisionId,
+            error: error.message,
+            stage: 'write_dynamodb',
+          });
+        } else if (inserted) {
+          totalAssetsIngested++;
+        } else {
+          totalSkipped++;
         }
-        
-        console.log(`Batch ${batchNum} complete: ${totalAssetsIngested} ingested, ${totalSkipped} skipped`);
       }
+      
+      console.log(`Batch ${batchNum} complete: ${totalAssetsIngested} ingested, ${totalSkipped} skipped`);
     }
     
     const writeDuration = ((Date.now() - writeStartTime) / 1000).toFixed(1);

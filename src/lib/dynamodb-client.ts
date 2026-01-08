@@ -203,7 +203,8 @@ export async function updateCreativeDriveAssetRecord(
   tableName: string,
   asset: CreativeDriveAssetLike,
   metadata?: AssetMetadata[],
-  options: UpdateCreativeDriveAssetOptions = {}
+  options: UpdateCreativeDriveAssetOptions = {},
+  isDryRun: boolean = false
 ): Promise<boolean> {
   const metadataMap = metadataArrayToMap(metadata);
   const folderId =
@@ -220,19 +221,35 @@ export async function updateCreativeDriveAssetRecord(
     fallback: options.publicUrl ?? asset.attributes.meta?.image_origin ?? ''
   });
 
-  await updateAssetRecord(tableName, {
-    creativeDriveAssetId: String(asset.attributes.id),
-    status: options.status ?? 'PENDING',
-    originalFilename: asset.attributes.original_filename,
-    filesize: asset.attributes.original_filesize,
-    extension: asset.attributes.extension,
-    folderId: String(folderId),
-    divisionId: String(divisionId),
-    sourceUrl,
-    publicUrl: options.publicUrl ?? asset.attributes.meta?.image_origin ?? '',
-    metadata: metadataMap,
-    migrationMode: options.migrationMode ?? 'delta'
-  });
+  if (!isDryRun) {
+    await updateAssetRecord(tableName, {
+      creativeDriveAssetId: String(asset.attributes.id),
+      status: options.status ?? 'PENDING',
+      originalFilename: asset.attributes.original_filename,
+      filesize: asset.attributes.original_filesize,
+      extension: asset.attributes.extension,
+      folderId: String(folderId),
+      divisionId: String(divisionId),
+      sourceUrl,
+      publicUrl: options.publicUrl ?? asset.attributes.meta?.image_origin ?? '',
+      metadata: metadataMap,
+      migrationMode: options.migrationMode ?? 'delta'
+    });
+  } else {
+    console.log(`Dry run: would update asset record for ${asset.attributes.id}` 
+      + `with status: ${options.status ?? 'PENDING'}`
+      + `, migrationMode: ${options.migrationMode ?? 'delta'}`
+      + `, publicUrl: ${options.publicUrl ?? asset.attributes.meta?.image_origin ?? ''}`
+      + `, metadata: ${JSON.stringify(metadataMap)}`
+      + `, sourceUrl: ${sourceUrl}`
+      + `, folderId: ${String(folderId)}`
+      + `, divisionId: ${String(divisionId)}`
+      + `, creativeDriveAssetId: ${String(asset.attributes.id)}`
+      + `, originalFilename: ${asset.attributes.original_filename}`
+      + `, filesize: ${asset.attributes.original_filesize}`
+      + `, extension: ${asset.attributes.extension}`
+    );
+  }
 
   return true;
 }
