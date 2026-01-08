@@ -107,6 +107,7 @@ export async function batchCheckAssetStatus(
       const items = response.Responses?.[tableName] || [];
       console.log(`Found ${items.length} items in DynamoDB...`);
       for (const item of items) {
+        console.log(`Item: ${JSON.stringify(item)}`);
         const assetId = item.creativeDriveAssetId as string;
         results.set(assetId, {
           assetId,
@@ -117,17 +118,19 @@ export async function batchCheckAssetStatus(
 
       // Mark missing items as not existing
       for (const id of batchIds) {
-        if (!results.has(id)) {
-          console.log(`Marking asset ${id} as not existing...`);
-          results.set(id, { assetId: id, exists: false });
+        const idStr = String(id);
+        if (!results.has(idStr)) {
+          console.log(`Marking asset ${idStr} as not existing...`);
+          results.set(idStr, { assetId: idStr, exists: false });
         }
       }
     } catch (error) {
       // On error, assume items don't exist (will be checked individually during write)
       console.error(`BatchGetCommand failed for batch starting at ${i}: ${error}`);
       for (const id of batchIds) {
-        if (!results.has(id)) {
-          results.set(id, { assetId: id, exists: false });
+        const idStr = String(id);
+        if (!results.has(idStr)) {
+          results.set(idStr, { assetId: idStr, exists: false });
         }
       }
     }
