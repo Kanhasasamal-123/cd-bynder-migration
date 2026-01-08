@@ -347,6 +347,8 @@ export const handler: Handler = async (event: IngestEvent) => {
       
       for (const asset of fetchedAssets) {
         const status = existingStatus.get(asset.id);
+
+        console.log(`Asset ${asset.id} status: ${status?.status ?? 'not found'}`);
         
         if (status?.exists && status.status && status.status !== 'PENDING') {
           // Already migrated (has non-PENDING status), skip

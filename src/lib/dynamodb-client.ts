@@ -118,6 +118,7 @@ export async function batchCheckAssetStatus(
       // Mark missing items as not existing
       for (const id of batchIds) {
         if (!results.has(id)) {
+          console.log(`Marking asset ${id} as not existing...`);
           results.set(id, { assetId: id, exists: false });
         }
       }
