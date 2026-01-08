@@ -18,7 +18,7 @@ jest.mock('@aws-sdk/lib-dynamodb', () => ({
       send: (...args: any[]) => mockDynamoSend(...args),
     })),
   },
-  PutCommand: jest.fn().mockImplementation((params) => ({ ...params, _commandType: 'Put' })),
+  UpdateCommand: jest.fn().mockImplementation((params) => ({ ...params, _commandType: 'Update' })),
   BatchGetCommand: jest.fn().mockImplementation((params) => ({ ...params, _commandType: 'BatchGet' })),
 }));
 
@@ -37,14 +37,14 @@ jest.mock('axios', () => ({
 
 describe('CreativeDriveIngestLambda', () => {
   beforeEach(() => {
-    // Default mock: BatchGetCommand returns empty (no existing assets), PutCommand succeeds
+    // Default mock: BatchGetCommand returns empty (no existing assets), UpdateCommand succeeds
     mockDynamoSend = jest.fn().mockImplementation((cmd) => {
       // BatchGetCommand has RequestItems property
       if (cmd.RequestItems) {
         // Return empty responses (no existing assets)
         return Promise.resolve({ Responses: { 'test-table': [] } });
       }
-      // PutCommand
+      // UpdateCommand
       return Promise.resolve({});
     });
     mockSecretsSend = jest.fn().mockResolvedValue({
@@ -114,7 +114,7 @@ describe('CreativeDriveIngestLambda', () => {
       totalAssetsIngested: 1,
       dryRun: false,
     });
-    // Phase 1: 2 POST calls (count + assets), Phase 1.5: 1 BatchGet, Phase 3: 1 Put
+    // Phase 1: 2 POST calls (count + assets), Phase 1.5: 1 BatchGet, Phase 3: 1 Update
     expect(mockAxiosPost).toHaveBeenCalled();
     expect(mockDynamoSend).toHaveBeenCalledTimes(2); // 1 BatchGet + 1 Put
   });
@@ -161,7 +161,7 @@ describe('CreativeDriveIngestLambda', () => {
       totalAssetsIngested: 0,
       dryRun: false,
     });
-    // Only 1 BatchGetCommand, no PutCommand since asset was skipped
+    // Only 1 BatchGetCommand, no UpdateCommand since asset was skipped
     expect(mockDynamoSend).toHaveBeenCalledTimes(1);
     // No metadata fetch since asset was filtered out
     expect(mockAxiosGet).not.toHaveBeenCalled();
@@ -222,7 +222,7 @@ describe('CreativeDriveIngestLambda', () => {
       expect.objectContaining({ query: '595167' }),
       expect.any(Object)
     );
-    // 1 BatchGet + 1 Put
+    // 1 BatchGet + 1 Update
     expect(mockDynamoSend).toHaveBeenCalledTimes(2);
   });
 

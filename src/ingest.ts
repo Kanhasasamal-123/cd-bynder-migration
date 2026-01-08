@@ -2,7 +2,7 @@ import { Handler } from 'aws-lambda';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { CreativeDriveClient, AssetMetadata, SearchAssetsResult } from './lib/creativedrive-client';
 import { calculateDateRange } from './lib/utils/dateUtils';
-import { putCreativeDriveAssetRecord, batchCheckAssetStatus } from './lib/dynamodb-client';
+import { updateCreativeDriveAssetRecord, batchCheckAssetStatus } from './lib/dynamodb-client';
 
 const secretsClient = new SecretsManagerClient({});
 
@@ -466,7 +466,7 @@ export const handler: Handler = async (event: IngestEvent) => {
             },
           };
           
-          return putCreativeDriveAssetRecord(getTableName(), assetRecord, metadata || undefined, {
+          return updateCreativeDriveAssetRecord(getTableName(), assetRecord, metadata || undefined, {
             status: 'PENDING',
             migrationMode: mode,
             publicUrl: asset.publicUrl

@@ -24,6 +24,7 @@ export interface MigrationAsset {
   originalFilename: string;
   publicUrl: string;
   metadata?: Record<string, string>;
+  existingBynderId?: string;
 }
 
 export interface MigrationOptions {
@@ -45,25 +46,15 @@ export class MigrationService {
   async migrateAsset(asset: MigrationAsset, options: MigrationOptions = {}): Promise<MigrationResult> {
     const { onProgress } = options;
 
-    // Apply filename fallback for style_number and color_code
-    const filenameMetadata = this.bynderClient.extractMetadataFromFilename(asset.originalFilename);
-    
     // Ensure metadata object exists
     if (!asset.metadata) {
       asset.metadata = {};
     }
 
-    let existingBynderId: string | null = null;
-
-    existingBynderId = await this.bynderClient.findMedia(
-      asset.metadata.style_number || filenameMetadata.styleNumber,
-      asset.metadata.color_code || filenameMetadata.colorCode,
-      asset.metadata.angle_code || filenameMetadata.angleCode
-    );
-    if (existingBynderId) {
+    if (asset.existingBynderId) {
       onProgress?.({
         stage: 'update',
-        message: `Creating new version for Bynder asset ${existingBynderId}`,
+        message: `Creating new version for Bynder asset ${asset.existingBynderId}`,
         details: { style_number: asset.metadata?.style_number, 
           color_code: asset.metadata?.color_code,
           },
@@ -107,19 +98,19 @@ export class MigrationService {
             },
           });
         },
-        mediaId: existingBynderId ?? undefined,
+        mediaId: asset.existingBynderId ?? undefined,
       }
     );
 
     onProgress?.({
       stage: 'complete',
-      message: existingBynderId
-        ? `Bynder asset ${existingBynderId} updated with new version`
+      message: asset.existingBynderId
+        ? `Bynder asset ${asset.existingBynderId} updated with new version`
         : `Migration completed successfully`,
       details: {
         creativeDriveAssetId: asset.creativeDriveAssetId,
         bynderId,
-        mode: existingBynderId ? 'update' : 'create',
+        mode: asset.existingBynderId ? 'update' : 'create',
       },
     });
 
