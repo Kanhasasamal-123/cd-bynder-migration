@@ -444,45 +444,61 @@ export class BynderClient {
       assetMetadata['color_code'] = filenameMetadata.colorCode;
     }
 
-    const metapropertiesPayload = this.buildMetapropertiesPayload(assetMetadata);
+    // Different save flow for existing assets vs new assets
+    // See: https://api.bynder.com/reference/saveuploadedfiletoexistingasset
+    // The saveuploadedfiletoexistingasset endpoint doesn't accept metadata payload,
+    // so we need to update metadata separately after saving
+    
+    if (mediaId) {
+      // Existing asset: save file first (no metadata), then update metadata separately
+      const saveEndpoint = `${this.credentials.apiBaseUrl}/api/v4/media/${mediaId}/save/${importId}`;
+      
+      const saveResponse = await axios.post(saveEndpoint, null, { headers: authHeader });
 
-    const formData = new FormData();
-
-    // 2. Append simple text fields (key-value pairs)
-    // The key 'name_field' is the name the API expects for this parameter.
-    formData.append('importId', importId);
-    formData.append('name', filename);
-
-    // If SHARE uploaded date is < 12/14/2022 mark ArchiveDate in Bynder as 12/15/2025
-    if (assetMetadata['system_uploaded']) {
-      const normalized_system_uploaded_date_ts = new Date(assetMetadata['system_uploaded']);
-      const archiveDatePeriod = new Date('2022-12-14'); //ArchiveDate timeperiod
-      if (normalized_system_uploaded_date_ts.getTime() < archiveDatePeriod.getTime()) {
-        formData.append('archiveDate', '2025-12-15T00:00:00Z')
+      if (saveResponse.status < 200 || saveResponse.status >= 300) {
+        throw new Error('Failed to save file to existing Bynder asset');
       }
+
+      // Update metadata separately using the Modify asset endpoint
+      await this.updateMediaMetadata(mediaId, assetMetadata);
+
+      return mediaId;
+    } else {
+      // New asset: save with metadata in one call
+      const metapropertiesPayload = this.buildMetapropertiesPayload(assetMetadata);
+
+      const formData = new FormData();
+      formData.append('importId', importId);
+      formData.append('name', filename);
+
+      // If SHARE uploaded date is < 12/14/2022 mark ArchiveDate in Bynder as 12/15/2025
+      if (assetMetadata['system_uploaded']) {
+        const normalized_system_uploaded_date_ts = new Date(assetMetadata['system_uploaded']);
+        const archiveDatePeriod = new Date('2022-12-14'); //ArchiveDate timeperiod
+        if (normalized_system_uploaded_date_ts.getTime() < archiveDatePeriod.getTime()) {
+          formData.append('archiveDate', '2025-12-15T00:00:00Z')
+        }
+      }
+
+      for (const [key, value] of Object.entries(metapropertiesPayload)) {
+        formData.append(key, value);
+      }
+
+      const saveEndpoint = `${this.credentials.apiBaseUrl}/api/v4/media/save/${importId}`;
+      const saveResponse = await axios.post(saveEndpoint, formData, { headers: authHeader });
+
+      if (saveResponse.status < 200 || saveResponse.status >= 300) {
+        throw new Error('Failed to save new Bynder asset');
+      }
+
+      const bynderId = saveResponse.data.mediaid;
+
+      if (!bynderId) {
+        throw new Error('Failed to get Bynder asset ID from save response');
+      }
+
+      return bynderId;
     }
-
-    for (const [key, value] of Object.entries(metapropertiesPayload)) {
-      formData.append(key, value);
-    }
-
-    const saveEndpoint = mediaId
-      ? `${this.credentials.apiBaseUrl}/api/v4/media/${mediaId}/save/${importId}`
-      : `${this.credentials.apiBaseUrl}/api/v4/media/save/${importId}`;
-
-    const saveResponse = await axios.post(saveEndpoint, formData, { headers: authHeader });
-
-    if (saveResponse.status < 200 || saveResponse.status >= 300) {
-      throw new Error('Failed to update Bynder asset metadata');
-    }
-
-    const bynderId = saveResponse.data.mediaid;
-
-    if (!bynderId) {
-      throw new Error('Failed to get Bynder asset ID from save response');
-    }
-
-    return bynderId;
   }
 
   async findMedia(styleNumber: string, colorCode: string, angleCode?: string): Promise<string | null> {
