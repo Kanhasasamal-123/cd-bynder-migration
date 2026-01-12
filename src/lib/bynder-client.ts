@@ -116,7 +116,11 @@ export class BynderClient {
       ? filename.substring(lastDashIndex + 1, colorCodeEndIndex)
       : filename.substring(lastDashIndex + 1);
 
-    const angleCode = filename.substring(lastDashIndex + 1, dotIndex);
+    // Angle code is the part after underscore, up to the file extension
+    // If no underscore, angle code is empty
+    const angleCode = underscoreIndex !== -1 && dotIndex !== -1
+      ? filename.substring(underscoreIndex + 1, dotIndex)
+      : '';
 
     return { styleNumber, colorCode, angleCode };
   }
