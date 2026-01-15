@@ -200,11 +200,11 @@ export class BynderClient {
       if (normalized_system_uploaded_date_ts.getTime() < archiveDatePeriod.getTime()) {
         this.mapFieldToPayload(metapropertiesPayload, 'Archived', 'Asset_Status');
       } else {
-        this.mapFieldToPayload(metapropertiesPayload, 'In Progress', 'Asset_Status');
+        this.mapFieldToPayload(metapropertiesPayload, 'In Progress Ecom', 'Asset_Status');
       }
 
     } else {
-      this.mapFieldToPayload(metapropertiesPayload, 'In Progress', 'Asset_Status');
+      this.mapFieldToPayload(metapropertiesPayload, 'In Progress Ecom', 'Asset_Status');
     }
 
     
