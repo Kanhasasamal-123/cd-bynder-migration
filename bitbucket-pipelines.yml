@@ -127,6 +127,8 @@ pipelines:
               - full
           - name: MAX_ASSETS
             default: "10"
+          - name: FETCH_OFFSET
+            default: ""
           - name: DIVISION_ID
             default: ""
           - name: FOLDER_ID
@@ -164,6 +166,10 @@ pipelines:
             - echo "Function:$INGEST_LAMBDA"
             - echo "Mode:$MODE"
             - echo "Max Assets:$MAX_ASSETS"
+            - |
+              if [ -n "$FETCH_OFFSET" ]; then
+                echo "Fetch Offset:$FETCH_OFFSET"
+              fi
 
             # Build payload with optional filters
             - export PAYLOAD="{\"maxAssets\":$MAX_ASSETS,\"mode\":\"$MODE\""
@@ -210,6 +216,13 @@ pipelines:
               if [ -n "$DATE_TO" ]; then
                 echo "Date To: $DATE_TO"
                 PAYLOAD="$PAYLOAD,\"dateTo\":\"$DATE_TO\""
+              fi
+
+            # Add fetchOffset if provided
+            - |
+              if [ -n "$FETCH_OFFSET" ]; then
+                echo "Fetch Offset: $FETCH_OFFSET"
+                PAYLOAD="$PAYLOAD,\"fetchOffset\":$FETCH_OFFSET"
               fi
 
             # Dry run flag

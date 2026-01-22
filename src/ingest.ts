@@ -37,6 +37,7 @@ interface Asset {
 
 interface IngestEvent {
   maxAssets?: number;
+  fetchOffset?: number;
   divisionId: string;
   folderId?: string;
   assetId?: string;
@@ -71,6 +72,8 @@ interface FetchAllAssetsParams {
   folderId: string;
   dateRange: { start: string; end: string };
   assetId?: string;
+  fetchOffset?: number;
+  maxAssets?: number;
 }
 
 interface FetchAllAssetsResult {
@@ -80,11 +83,11 @@ interface FetchAllAssetsResult {
 }
 
 /**
- * Fetch all assets from CreativeDrive in parallel batches.
- * Uses small page sizes (50) with up to 1000 parallel requests for speed.
+ * Fetch assets from CreativeDrive in parallel batches.
+ * Uses fetchOffset and maxAssets to limit the fetch range and avoid fetching too many assets.
  */
 async function fetchAllAssets(params: FetchAllAssetsParams): Promise<FetchAllAssetsResult> {
-  const { client, divisionId, folderId, dateRange, assetId } = params;
+  const { client, divisionId, folderId, dateRange, assetId, fetchOffset = 0, maxAssets = Infinity } = params;
   const failures: IngestionFailure[] = [];
 
   // For specific asset ID, just do a single search
@@ -134,39 +137,52 @@ async function fetchAllAssets(params: FetchAllAssetsParams): Promise<FetchAllAss
     return { assets: [], failures, totalAvailable: 0 };
   }
 
-  const numPages = Math.ceil(totalAvailable / SEARCH_PAGE_SIZE);
+  // Calculate the range to fetch based on fetchOffset and maxAssets
+  const startOffset = fetchOffset;
+  const endOffset = Math.min(startOffset + maxAssets, totalAvailable);
+  const assetsToFetch = endOffset - startOffset;
   
-  console.log(`Will fetch ${totalAvailable} assets in ${numPages} pages (${SEARCH_PAGE_SIZE} per page)`);
+  console.log(`Will fetch ${assetsToFetch} assets (offset ${startOffset} to ${endOffset - 1}) from ${totalAvailable} total available`);
 
-  // Generate all offsets
+  // Calculate how many pages we need to fetch
+  const numPages = Math.ceil(assetsToFetch / SEARCH_PAGE_SIZE);
+  
+  // Generate offsets starting from fetchOffset
   const offsets: number[] = [];
   for (let i = 0; i < numPages; i++) {
-    offsets.push(i * SEARCH_PAGE_SIZE);
+    const offset = startOffset + (i * SEARCH_PAGE_SIZE);
+    if (offset >= endOffset) break;
+    offsets.push(offset);
   }
 
-  // Fetch all pages in parallel batches
+  // Fetch pages in parallel batches
   const allAssets: FetchedAsset[] = [];
+  let shouldStop = false;
   
-  for (let batchStart = 0; batchStart < offsets.length; batchStart += MAX_PARALLEL_SEARCHES) {
+  for (let batchStart = 0; batchStart < offsets.length && !shouldStop; batchStart += MAX_PARALLEL_SEARCHES) {
     const batchOffsets = offsets.slice(batchStart, batchStart + MAX_PARALLEL_SEARCHES);
     const batchNum = Math.floor(batchStart / MAX_PARALLEL_SEARCHES) + 1;
     const totalBatches = Math.ceil(offsets.length / MAX_PARALLEL_SEARCHES);
     
     console.log(`Fetching batch ${batchNum}/${totalBatches} (${batchOffsets.length} parallel requests)...`);
     
-    const searchPromises = batchOffsets.map(offset => 
-      client.searchAssets({
+    const searchPromises = batchOffsets.map(offset => {
+      // Calculate the limit for this page (might be less than SEARCH_PAGE_SIZE for the last page)
+      const limit = Math.min(SEARCH_PAGE_SIZE, endOffset - offset);
+      return client.searchAssets({
         divisions: [divisionId],
         folderId,
         dateRange,
-        options: { limit: SEARCH_PAGE_SIZE, offset },
+        options: { limit, offset },
       }).then(result => ({ offset, result, error: null as Error | null }))
         .catch(error => ({ offset, result: null as SearchAssetsResult | null, error: error as Error }))
-    );
+    });
 
     const results = await Promise.all(searchPromises);
     
     for (const { offset, result, error } of results) {
+      if (shouldStop) break;
+      
       if (error) {
         console.error(`Failed to fetch assets at offset ${offset}: ${error.message}`);
         failures.push({
@@ -179,6 +195,11 @@ async function fetchAllAssets(params: FetchAllAssetsParams): Promise<FetchAllAss
       
       if (result && result.assets) {
         for (const a of result.assets) {
+          // Stop if we've reached maxAssets
+          if (allAssets.length >= maxAssets) {
+            shouldStop = true;
+            break;
+          }
           allAssets.push({
             id: a.attributes.id,
             original_filename: a.attributes.original_filename,
@@ -221,6 +242,7 @@ export const handler: Handler = async (event: IngestEvent) => {
 
     // Get configuration from event
     const maxAssets = event.maxAssets || Infinity;
+    const fetchOffset = event.fetchOffset || 0;
     const assetId = event.assetId?.trim();
     const divisionId = event.divisionId?.trim();
     const folderId = event.folderId?.trim() || '';
@@ -278,6 +300,9 @@ export const handler: Handler = async (event: IngestEvent) => {
       console.log(`Searching for asset ID: ${assetId}`);
     } else {
       console.log(`Max assets to ingest: ${maxAssets === Infinity ? 'unlimited' : maxAssets}`);
+      if (fetchOffset > 0) {
+        console.log(`Starting fetch from offset: ${fetchOffset}`);
+      }
     }
     
     if (dateFrom && dateTo) {
@@ -308,6 +333,8 @@ export const handler: Handler = async (event: IngestEvent) => {
       folderId,
       dateRange,
       assetId,
+      fetchOffset,
+      maxAssets,
     });
     
     failures.push(...fetchFailures);
@@ -363,12 +390,6 @@ export const handler: Handler = async (event: IngestEvent) => {
       }
       
       console.log(`DynamoDB check complete: ${alreadyMigrated} already migrated (skipped), ${pendingOrNew} need processing`);
-    }
-
-    // Apply maxAssets limit to assets that need processing
-    if (assetsToProcess.length > maxAssets) {
-      console.log(`Limiting to maxAssets: ${maxAssets} (from ${assetsToProcess.length} available)`);
-      assetsToProcess = assetsToProcess.slice(0, maxAssets);
     }
     
     const filterDuration = ((Date.now() - filterStartTime) / 1000).toFixed(1);
