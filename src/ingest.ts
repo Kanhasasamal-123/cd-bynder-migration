@@ -46,6 +46,7 @@ interface IngestEvent {
   dateFrom?: string;
   dateTo?: string;
   dryRun?: boolean;
+  fetchSort?: string;
 }
 
 interface IngestionFailure {
@@ -74,6 +75,7 @@ interface FetchAllAssetsParams {
   assetId?: string;
   fetchOffset?: number;
   maxAssets?: number;
+  fetchSort?: string;
 }
 
 interface FetchAllAssetsResult {
@@ -87,7 +89,7 @@ interface FetchAllAssetsResult {
  * Uses fetchOffset and maxAssets to limit the fetch range and avoid fetching too many assets.
  */
 async function fetchAllAssets(params: FetchAllAssetsParams): Promise<FetchAllAssetsResult> {
-  const { client, divisionId, folderId, dateRange, assetId, fetchOffset = 0, maxAssets = Infinity } = params;
+  const { client, divisionId, folderId, dateRange, assetId, fetchOffset = 0, maxAssets = Infinity, fetchSort = 'desc' } = params;
   const failures: IngestionFailure[] = [];
 
   // For specific asset ID, just do a single search
@@ -99,6 +101,7 @@ async function fetchAllAssets(params: FetchAllAssetsParams): Promise<FetchAllAss
         dateRange,
         query: assetId,
         options: { limit: 10, offset: 0 },
+        fetchSort,
       });
       
       const fetchedAssets: FetchedAsset[] = assets.map(a => ({
@@ -128,6 +131,7 @@ async function fetchAllAssets(params: FetchAllAssetsParams): Promise<FetchAllAss
       folderId,
       dateRange,
       options: { limit: 1, offset: 0 },
+      fetchSort,
     });
     totalAvailable = total;
     console.log(`Total assets available: ${totalAvailable}`);
@@ -174,6 +178,7 @@ async function fetchAllAssets(params: FetchAllAssetsParams): Promise<FetchAllAss
         folderId,
         dateRange,
         options: { limit, offset },
+        fetchSort,
       }).then(result => ({ offset, result, error: null as Error | null }))
         .catch(error => ({ offset, result: null as SearchAssetsResult | null, error: error as Error }))
     });
@@ -251,6 +256,7 @@ export const handler: Handler = async (event: IngestEvent) => {
     const dateFrom = event.dateFrom?.trim();
     const dateTo = event.dateTo?.trim();
     const isDryRun = event.dryRun === true;
+    const fetchSort = event.fetchSort || 'desc';
 
     if (!divisionId) {
       throw new Error('divisionId must be provided');
@@ -335,6 +341,7 @@ export const handler: Handler = async (event: IngestEvent) => {
       assetId,
       fetchOffset,
       maxAssets,
+      fetchSort,
     });
     
     failures.push(...fetchFailures);

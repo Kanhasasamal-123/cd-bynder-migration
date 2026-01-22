@@ -35,6 +35,7 @@ export interface SearchParams {
   dateRange: DateRange;
   query?: string;
   options: Options;
+  fetchSort?: string;
 }
 
 export interface Division {
@@ -229,7 +230,7 @@ export class CreativeDriveClient {
   /**
    * Fetch assets with public URLs from a folder (with pagination)
    */
-  async searchAssets({ divisions = [], folderId = '', dateRange, query, options = {} }: SearchParams): Promise<SearchAssetsResult> {
+  async searchAssets({ divisions = [], folderId = '', dateRange, query, options = {}, fetchSort = 'desc' }: SearchParams): Promise<SearchAssetsResult> {
     const { limit = 50, offset = 0 } = options;
 
     const payload: any = {
@@ -244,7 +245,7 @@ export class CreativeDriveClient {
           }
         }
       ],
-      sort_order: 'desc'
+      sort_order: fetchSort
     };
 
     // Only include query if provided

@@ -146,6 +146,8 @@ pipelines:
             allowed-values:
               - "true"
               - "false"
+          - name: FETCH_SORT
+            default: "desc"
       - step:
           name: Run DAM Migration
           deployment: Production
@@ -166,6 +168,7 @@ pipelines:
             - echo "Function:$INGEST_LAMBDA"
             - echo "Mode:$MODE"
             - echo "Max Assets:$MAX_ASSETS"
+            - echo "Fetch Sort:${FETCH_SORT:-desc}"
             - |
               if [ -n "$FETCH_OFFSET" ]; then
                 echo "Fetch Offset:$FETCH_OFFSET"
@@ -224,6 +227,12 @@ pipelines:
                 echo "Fetch Offset: $FETCH_OFFSET"
                 PAYLOAD="$PAYLOAD,\"fetchOffset\":$FETCH_OFFSET"
               fi
+
+            # Add fetchSort (defaults to desc)
+            - |
+              export FETCH_SORT_VALUE=${FETCH_SORT:-desc}
+              echo "Fetch Sort: $FETCH_SORT_VALUE"
+              PAYLOAD="$PAYLOAD,\"fetchSort\":\"$FETCH_SORT_VALUE\""
 
             # Dry run flag
             - |
