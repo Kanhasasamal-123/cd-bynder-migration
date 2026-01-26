@@ -193,11 +193,25 @@ pipelines:
                 PAYLOAD="$PAYLOAD,\"folderId\":\"$FOLDER_ID\""
               fi
 
-            # Add asset ID filter if provided
+            # Add asset ID(s) filter if provided
             - |
               if [ -n "$ASSET_ID" ]; then
-                echo "Asset ID: $ASSET_ID"
-                PAYLOAD="$PAYLOAD,\"assetId\":\"$ASSET_ID\""
+                # Parse comma-separated asset IDs
+                IFS=',' read -ra ASSET_IDS_ARRAY <<< "$ASSET_ID"
+                ASSET_IDS_JSON="["
+                for i in "${!ASSET_IDS_ARRAY[@]}"; do
+                  if [ $i -gt 0 ]; then
+                    ASSET_IDS_JSON="$ASSET_IDS_JSON,"
+                  fi
+                  # Trim whitespace and add quotes
+                  ASSET_ID_TRIMMED=$(echo "${ASSET_IDS_ARRAY[$i]}" | xargs)
+                  ASSET_IDS_JSON="$ASSET_IDS_JSON\"$ASSET_ID_TRIMMED\""
+                done
+                ASSET_IDS_JSON="$ASSET_IDS_JSON]"
+                
+                echo "Asset ID(s): $ASSET_ID"
+                echo "Parsed as array: $ASSET_IDS_JSON"
+                PAYLOAD="$PAYLOAD,\"assetIds\":$ASSET_IDS_JSON"
               fi
 
             # Add syncLastDays if provided

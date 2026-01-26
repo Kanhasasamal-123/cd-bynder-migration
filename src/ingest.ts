@@ -41,6 +41,7 @@ interface IngestEvent {
   divisionId: string;
   folderId?: string;
   assetId?: string;
+  assetIds?: string[];
   mode?: 'full' | 'delta';
   syncLastDays?: number;
   dateFrom?: string;
@@ -73,6 +74,7 @@ interface FetchAllAssetsParams {
   folderId: string;
   dateRange: { start: string; end: string };
   assetId?: string;
+  assetIds?: string[];
   fetchOffset?: number;
   maxAssets?: number;
   fetchSort?: string;
@@ -89,37 +91,59 @@ interface FetchAllAssetsResult {
  * Uses fetchOffset and maxAssets to limit the fetch range and avoid fetching too many assets.
  */
 async function fetchAllAssets(params: FetchAllAssetsParams): Promise<FetchAllAssetsResult> {
-  const { client, divisionId, folderId, dateRange, assetId, fetchOffset = 0, maxAssets = Infinity, fetchSort = 'desc' } = params;
+  const { client, divisionId, folderId, dateRange, assetId, assetIds, fetchOffset = 0, maxAssets = Infinity, fetchSort = 'desc' } = params;
   const failures: IngestionFailure[] = [];
 
-  // For specific asset ID, just do a single search
-  if (assetId) {
-    try {
-      const { assets } = await client.searchAssets({
+  // Determine which asset IDs to search for
+  const assetIdsToSearch: string[] = [];
+  if (assetIds && assetIds.length > 0) {
+    assetIdsToSearch.push(...assetIds);
+  } else if (assetId) {
+    assetIdsToSearch.push(assetId);
+  }
+
+  // For specific asset ID(s), search for each one in parallel
+  if (assetIdsToSearch.length > 0) {
+    console.log(`Searching for ${assetIdsToSearch.length} specific asset ID(s)...`);
+    
+    const searchPromises = assetIdsToSearch.map(id => 
+      client.searchAssets({
         divisions: [divisionId],
         folderId,
         dateRange,
-        query: assetId,
+        query: id.trim(),
         options: { limit: 10, offset: 0 },
         fetchSort,
-      });
+      })
+        .then(result => ({ assetId: id, result, error: null as Error | null }))
+        .catch(error => ({ assetId: id, result: null as SearchAssetsResult | null, error: error as Error }))
+    );
+
+    const results = await Promise.all(searchPromises);
+    const fetchedAssets: FetchedAsset[] = [];
+    
+    for (const { assetId: id, result, error } of results) {
+      if (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+        failures.push({ assetId: id, error: errorMsg, stage: 'fetch_assets' });
+        continue;
+      }
       
-      const fetchedAssets: FetchedAsset[] = assets.map(a => ({
-        id: a.attributes.id,
-        original_filename: a.attributes.original_filename,
-        original_filesize: a.attributes.original_filesize,
-        extension: a.attributes.extension,
-        folder_id: a.attributes.folder_id || '',
-        division_id: a.attributes.division_id || String(divisionId),
-        publicUrl: a.attributes.meta?.image_origin || '',
-      }));
-      
-      return { assets: fetchedAssets, failures, totalAvailable: assets.length };
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      failures.push({ assetId, error: errorMsg, stage: 'fetch_assets' });
-      return { assets: [], failures, totalAvailable: 0 };
+      if (result && result.assets) {
+        const mappedAssets = result.assets.map(a => ({
+          id: a.attributes.id,
+          original_filename: a.attributes.original_filename,
+          original_filesize: a.attributes.original_filesize,
+          extension: a.attributes.extension,
+          folder_id: a.attributes.folder_id || '',
+          division_id: a.attributes.division_id || String(divisionId),
+          publicUrl: a.attributes.meta?.image_origin || '',
+        }));
+        fetchedAssets.push(...mappedAssets);
+      }
     }
+    
+    return { assets: fetchedAssets, failures, totalAvailable: fetchedAssets.length };
   }
 
   // First, get the total count with a small request
@@ -248,7 +272,17 @@ export const handler: Handler = async (event: IngestEvent) => {
     // Get configuration from event
     const maxAssets = event.maxAssets || Infinity;
     const fetchOffset = event.fetchOffset || 0;
-    const assetId = event.assetId?.trim();
+    
+    // Support both assetId (single or comma-separated) and assetIds (array)
+    // Parse comma-separated asset IDs from assetId if provided
+    let assetIds: string[] | undefined;
+    if (event.assetIds && event.assetIds.length > 0) {
+      assetIds = event.assetIds.map(id => id.trim()).filter(id => id.length > 0);
+    } else if (event.assetId) {
+      // Parse comma-separated string
+      assetIds = event.assetId.split(',').map(id => id.trim()).filter(id => id.length > 0);
+    }
+    
     const divisionId = event.divisionId?.trim();
     const folderId = event.folderId?.trim() || '';
     const mode = event.mode || 'delta';
@@ -302,8 +336,8 @@ export const handler: Handler = async (event: IngestEvent) => {
 
     console.log(`Migration mode: ${mode}${isDryRun ? ' (dry-run)' : ''}`);
     
-    if (assetId) {
-      console.log(`Searching for asset ID: ${assetId}`);
+    if (assetIds && assetIds.length > 0) {
+      console.log(`Searching for ${assetIds.length} asset ID(s): ${assetIds.join(', ')}`);
     } else {
       console.log(`Max assets to ingest: ${maxAssets === Infinity ? 'unlimited' : maxAssets}`);
       if (fetchOffset > 0) {
@@ -338,7 +372,7 @@ export const handler: Handler = async (event: IngestEvent) => {
       divisionId: numericDivisionId,
       folderId,
       dateRange,
-      assetId,
+      assetIds,
       fetchOffset,
       maxAssets,
       fetchSort,
@@ -350,8 +384,8 @@ export const handler: Handler = async (event: IngestEvent) => {
     console.log(`Phase 1 complete: ${fetchedAssets.length} assets fetched in ${fetchDuration}s`);
     
     if (fetchedAssets.length === 0) {
-      if (assetId) {
-        console.warn(`Asset ID ${assetId} not found`);
+      if (assetIds && assetIds.length > 0) {
+        console.warn(`No assets found for the provided asset ID(s): ${assetIds.join(', ')}`);
       } else {
         console.warn('No assets found matching criteria');
       }
