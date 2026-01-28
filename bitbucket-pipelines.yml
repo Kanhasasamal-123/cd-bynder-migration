@@ -281,4 +281,63 @@ pipelines:
                 exit 1
               fi
 
+    nightly-migration-76:
+      - step:
+          name: Nightly Migration - Division 76
+          deployment: Production
+          script:
+            # Install AWS CLI and jq
+            - apt-get update && apt-get install -y awscli jq
+
+            # Configure AWS credentials
+            - export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+            - export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+            - export AWS_DEFAULT_REGION=${AWS_REGION:-us-east-1}
+            - export INGEST_LAMBDA=${INGEST_LAMBDA:-dam-migration-ingest-prod}
+
+            # Hardcoded configuration for nightly division 76 migration
+            - export DIVISION_ID=76
+            - export SYNC_LAST_DAYS=1
+            - export MAX_ASSETS=1000
+            - export MODE=delta
+            - export FETCH_SORT=desc
+
+            # Display configuration
+            - echo "=========================================="
+            - echo "Nightly Migration - Division 76"
+            - echo "=========================================="
+            - echo "Function: $INGEST_LAMBDA"
+            - echo "Division ID: $DIVISION_ID"
+            - echo "Sync Last Days: $SYNC_LAST_DAYS"
+            - echo "Max Assets: $MAX_ASSETS"
+            - echo "Mode: $MODE"
+            - echo "Fetch Sort: $FETCH_SORT"
+            - echo ""
+
+            # Build payload
+            - |
+              PAYLOAD="{\"maxAssets\":$MAX_ASSETS,\"mode\":\"$MODE\",\"divisionId\":\"$DIVISION_ID\",\"syncLastDays\":$SYNC_LAST_DAYS,\"fetchSort\":\"$FETCH_SORT\"}"
+              echo "Payload: $PAYLOAD"
+              echo ""
+
+            # Invoke Lambda (async Event invocation)
+            - |
+              STATUS_CODE=$(aws lambda invoke \
+                --function-name $INGEST_LAMBDA \
+                --invocation-type Event \
+                --payload "$PAYLOAD" \
+                --region $AWS_DEFAULT_REGION \
+                --cli-binary-format raw-in-base64-out \
+                --output text \
+                --query 'StatusCode' \
+                /dev/null)
+
+              echo "Lambda Status Code: $STATUS_CODE"
+
+              if [ "$STATUS_CODE" = "202" ]; then
+                echo "✅ Nightly migration for Division 76 started successfully"
+              else
+                echo "❌ Lambda invocation failed with status code: $STATUS_CODE"
+                exit 1
+              fi
 
