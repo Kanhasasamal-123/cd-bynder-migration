@@ -294,7 +294,7 @@ pipelines:
             - export DIVISION_ID=76
             - export SYNC_LAST_DAYS=1
             - export MAX_ASSETS=1000
-            - export MODE=delta
+            - export MODE=full
             - export FETCH_SORT=desc
             - echo "=========================================="
             - echo "Nightly Migration - Division 76"
