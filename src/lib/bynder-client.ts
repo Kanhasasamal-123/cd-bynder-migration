@@ -246,9 +246,11 @@ export class BynderClient {
       chunkSize?: number;
       onProgress?: (progress: { current: number; total: number; percentage: number }) => void;
       mediaId?: string;
+      /** When true and mediaId is set, finalize as additional file on existing asset (Step 4 "Finalize additional file") */
+      addAsAdditionalFile?: boolean;
     } = {}
   ): Promise<string> {
-    const { chunkSize = 1024 * 1024 * 5, onProgress, mediaId } = options;
+    const { chunkSize = 1024 * 1024 * 5, onProgress, mediaId, addAsAdditionalFile = false } = options;
 
     const accessToken = await this.getAccessToken();
     const authHeader = { Authorization: `Bearer ${accessToken}` };
@@ -388,13 +390,31 @@ export class BynderClient {
       }
     }
 
-    // Step 4: Finalize upload
+    // Step 4: Finalize upload (or finalize as additional file on existing asset)
     const chunkData = new URLSearchParams({
       targetid: uploadData.s3file.targetid,
       s3_filename: uploadData.s3_filename,
       chunks: totalChunks.toString(),
       original_filename: filename,
     });
+
+    let importId: string | undefined;
+
+    if (mediaId && addAsAdditionalFile) {
+      // Finalize additional file: add uploaded file as new file on existing asset
+      // https://api.bynder.com/reference/finalize-additional-file
+      const additionalFileEndpoint = `${this.credentials.apiBaseUrl}/api/v4/media/${mediaId}/save/additional/${uploadData.s3file.uploadid}/`;
+      const additionalResponse = await axios.post(additionalFileEndpoint, chunkData, {
+        headers: {
+          ...authHeader,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      });
+      if (additionalResponse.status < 200 || additionalResponse.status >= 300) {
+        throw new Error('Failed to finalize additional file on existing Bynder asset');
+      }
+      return mediaId;
+    }
 
     const finalizeResponse = await axios.post(
       `${this.credentials.apiBaseUrl}/api/v4/upload/${uploadData.s3file.uploadid}`,
@@ -403,7 +423,7 @@ export class BynderClient {
     );
 
     // Step 5: Poll for completion
-    const importId = finalizeResponse.data.importId;
+    importId = finalizeResponse.data.importId;
     let pollCount = 0;
     const maxPolls = 60;
 
@@ -501,19 +521,44 @@ export class BynderClient {
     }
   }
 
+  /**
+   * Get a single metaproperty value from a media item (Bynder response shape can vary).
+   */
+  private getMetapropertyValueFromMedia(mediaItem: Record<string, unknown>, metapropertyName: string): string | null {
+    const propId = this.metaproperties.get(metapropertyName);
+    if (!propId) return null;
+
+    const raw =
+      (mediaItem.metaproperty as Record<string, unknown>)?.[propId] ??
+      (mediaItem.metaproperties as Record<string, unknown>)?.[propId] ??
+      (mediaItem as Record<string, unknown>)[`metaproperty.${propId}`];
+
+    if (raw == null) return null;
+    if (typeof raw === 'string') return raw.trim() || null;
+    if (Array.isArray(raw) && raw.length > 0) {
+      const first = raw[0];
+      if (typeof first === 'string') return first.trim() || null;
+      if (first && typeof first === 'object' && 'name' in first) return String((first as { name: string }).name).trim() || null;
+      if (first && typeof first === 'object' && 'id' in first) return String((first as { id: string }).id).trim() || null;
+    }
+    if (typeof raw === 'object' && raw !== null && 'name' in raw) return String((raw as { name: string }).name).trim() || null;
+    if (typeof raw === 'object' && raw !== null && 'id' in raw) return String((raw as { id: string }).id).trim() || null;
+    return null;
+  }
+
+  /**
+   * Find one asset by Style_Number only, then filter client-side by RLM_NRF_Color_Code and Ecom_Angle_Code
+   * so we don't rely on the Bynder API filtering with multiple params.
+   */
   async findMedia(styleNumber: string, colorCode: string, angleCode?: string): Promise<string | null> {
     const accessToken = await this.getAccessToken();
     const authHeader = { Authorization: `Bearer ${accessToken}` };
+    await this.ensureMetapropertiesLoaded(authHeader);
 
     const params: Record<string, string | number> = {
       property_Style_Number: styleNumber,
-      property_RLM_NRF_Color_Code: colorCode,
-      limit: 1,
+      limit: 200,
     };
-
-    if (angleCode) {
-      params.property_Ecom_Angle_Code = angleCode;
-    }
 
     const response = await axios.get(`${this.credentials.apiBaseUrl}/api/v4/media/`, {
       headers: authHeader,
@@ -521,7 +566,7 @@ export class BynderClient {
     });
 
     const data = response.data;
-    let candidates: any[] = [];
+    let candidates: Record<string, unknown>[] = [];
     if (Array.isArray(data)) {
       candidates = data;
     } else if (Array.isArray(data?.media)) {
@@ -532,12 +577,21 @@ export class BynderClient {
       candidates = data.results;
     }
 
-    const media = candidates[0];
-    if (!media) {
-      return null;
+    const normalizedColor = (colorCode || '').trim();
+    const normalizedAngle = (angleCode || '').trim();
+
+    for (const item of candidates) {
+      const itemColor = this.getMetapropertyValueFromMedia(item, 'RLM_NRF_Color_Code');
+      const itemAngle = this.getMetapropertyValueFromMedia(item, 'Ecom_Angle_Code');
+      const colorMatch = normalizedColor ? (itemColor || '').trim() === normalizedColor : true;
+      const angleMatch = normalizedAngle ? (itemAngle || '').trim() === normalizedAngle : true;
+      if (colorMatch && angleMatch) {
+        const id = (item as { id?: string }).id;
+        return id || null;
+      }
     }
 
-    return media.id || null;
+    return null;
   }
 
   async updateMediaMetadata(mediaId: string, assetMetadata: Record<string, string>): Promise<void> {

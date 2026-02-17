@@ -51,6 +51,29 @@ export class MigrationService {
       asset.metadata = {};
     }
 
+    // Resolve style_number, color_code, angle_code for matching (metadata or from filename)
+    const filenameMeta = this.bynderClient.extractMetadataFromFilename(asset.originalFilename);
+    const styleNumber = asset.metadata?.style_number || filenameMeta.styleNumber;
+    const colorCode = asset.metadata?.color_code || filenameMeta.colorCode;
+    const angleCode = asset.metadata?.angle_code || filenameMeta.angleCode;
+
+    // When no existingBynderId, check if an asset in Bynder matches Style_Number_RLM_Code and angle code
+    // If so, we will add this file as an additional file to that existing asset (finalize additional file API)
+    let targetBynderId: string | undefined = asset.existingBynderId;
+    let addAsAdditionalFile = false;
+    if (!targetBynderId && styleNumber && colorCode && angleCode) {
+      const matchingMediaId = await this.bynderClient.findMedia(styleNumber, colorCode, angleCode);
+      if (matchingMediaId) {
+        targetBynderId = matchingMediaId;
+        addAsAdditionalFile = true;
+        onProgress?.({
+          stage: 'match',
+          message: `Found existing Bynder asset ${matchingMediaId} (Style_Number_RLM_Code + angle); will add as additional file`,
+          details: { styleNumber, colorCode, angleCode, bynderId: matchingMediaId },
+        });
+      }
+    }
+
     if (asset.existingBynderId) {
       onProgress?.({
         stage: 'update',
@@ -82,7 +105,7 @@ export class MigrationService {
       },
     });
 
-    // Step 3: Upload to Bynder (new asset or new version)
+    // Step 3: Upload to Bynder (new asset, new version, or additional file on matching asset)
     const bynderId = await this.bynderClient.uploadFile(
       buffer,
       asset.originalFilename,
@@ -98,19 +121,23 @@ export class MigrationService {
             },
           });
         },
-        mediaId: asset.existingBynderId ?? undefined,
+        mediaId: targetBynderId,
+        addAsAdditionalFile,
       }
     );
 
+    const mode = asset.existingBynderId ? 'update' : addAsAdditionalFile ? 'additional_file' : 'create';
     onProgress?.({
       stage: 'complete',
       message: asset.existingBynderId
         ? `Bynder asset ${asset.existingBynderId} updated with new version`
-        : `Migration completed successfully`,
+        : addAsAdditionalFile
+          ? `Bynder asset ${bynderId} updated with additional file`
+          : `Migration completed successfully`,
       details: {
         creativeDriveAssetId: asset.creativeDriveAssetId,
         bynderId,
-        mode: asset.existingBynderId ? 'update' : 'create',
+        mode,
       },
     });
 
