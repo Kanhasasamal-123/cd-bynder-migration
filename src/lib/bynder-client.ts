@@ -527,12 +527,13 @@ export class BynderClient {
    */
   private getMetapropertyValueFromMedia(mediaItem: Record<string, unknown>, metapropertyName: string): string | null {
     const propId = this.metaproperties.get(metapropertyName);
-    if (!propId) return null;
 
     const raw =
-      (mediaItem.metaproperty as Record<string, unknown>)?.[propId] ??
-      (mediaItem.metaproperties as Record<string, unknown>)?.[propId] ??
-      (mediaItem as Record<string, unknown>)[`metaproperty.${propId}`];
+      (propId &&
+        ((mediaItem.metaproperty as Record<string, unknown>)?.[propId] ??
+          (mediaItem.metaproperties as Record<string, unknown>)?.[propId] ??
+          (mediaItem as Record<string, unknown>)[`metaproperty.${propId}`])) ??
+      (mediaItem as Record<string, unknown>)[`property_${metapropertyName}`];
 
     if (raw == null) return null;
     if (typeof raw === 'string') return raw.trim() || null;
