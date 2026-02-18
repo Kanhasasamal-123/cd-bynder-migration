@@ -565,6 +565,7 @@ export class BynderClient {
       params,
     });
 
+
     const data = response.data;
     let candidates: Record<string, unknown>[] = [];
     if (Array.isArray(data)) {
@@ -577,6 +578,8 @@ export class BynderClient {
       candidates = data.results;
     }
 
+    console.log('Found existing assets for style number: ', candidates);
+
     const normalizedColor = (colorCode || '').trim();
     const normalizedAngle = (angleCode || '').trim();
 
@@ -587,6 +590,7 @@ export class BynderClient {
       const angleMatch = normalizedAngle ? (itemAngle || '').trim() === normalizedAngle : true;
       if (colorMatch && angleMatch) {
         const id = (item as { id?: string }).id;
+        console.log('Found matching asset: ', id);
         return id || null;
       }
     }
