@@ -89,7 +89,7 @@ describe('MigrationService', () => {
       onProgress: progressSpy,
     });
 
-    expect(findMedia).toHaveBeenCalledWith('ST123', 'CC123', 'FRONT');
+    expect(findMedia).toHaveBeenCalledWith('ST123', 'CC123', 'FRONT', expect.any(Function));
     expect(bynderClient.uploadFile).toHaveBeenCalledWith(
       expect.any(Buffer),
       baseAsset.originalFilename,
