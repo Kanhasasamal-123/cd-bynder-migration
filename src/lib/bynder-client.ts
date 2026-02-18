@@ -9,6 +9,7 @@
 
 import axios from 'axios';
 import FormData from 'form-data';
+import { MigrationProgress } from './migration-service';
 
 export interface BynderCredentials {
   clientId: string;
@@ -550,7 +551,7 @@ export class BynderClient {
    * Find one asset by Style_Number only, then filter client-side by RLM_NRF_Color_Code and Ecom_Angle_Code
    * so we don't rely on the Bynder API filtering with multiple params.
    */
-  async findMedia(styleNumber: string, colorCode: string, angleCode?: string): Promise<string | null> {
+  async findMedia(styleNumber: string, colorCode: string, angleCode?: string, onProgress?: (progress: MigrationProgress) => void): Promise<string | null> {
     const accessToken = await this.getAccessToken();
     const authHeader = { Authorization: `Bearer ${accessToken}` };
     await this.ensureMetapropertiesLoaded(authHeader);
@@ -578,7 +579,13 @@ export class BynderClient {
       candidates = data.results;
     }
 
-    console.log('Found existing assets for style number: ', candidates);
+    onProgress?.({
+      stage: 'additional_file',
+      message: `Found existing assets for style number: `,
+      details: {
+        candidates: candidates,
+      },
+    });
 
     const normalizedColor = (colorCode || '').trim();
     const normalizedAngle = (angleCode || '').trim();
@@ -590,7 +597,13 @@ export class BynderClient {
       const angleMatch = normalizedAngle ? (itemAngle || '').trim() === normalizedAngle : true;
       if (colorMatch && angleMatch) {
         const id = (item as { id?: string }).id;
-        console.log('Found matching asset: ', id);
+        onProgress?.({
+          stage: 'additional_file',
+          message: `Found matching asset: `,
+          details: {
+            id: id,
+          },
+        });
         return id || null;
       }
     }
