@@ -96,10 +96,52 @@ describe('AssetMigrationProcessorLambda', () => {
       })
       .mockResolvedValueOnce({}); // UpdateCommand (UPLOADED)
 
-    // Mock Bynder OAuth token
+    // Mock Bynder OAuth token (used by findMedia then uploadFile)
     mockAxiosPost.mockResolvedValueOnce({
       data: { access_token: 'test-token', token_type: 'bearer', expires_in: 3600 },
     });
+
+    // findMedia runs first: metaproperties get, then media search get (no match)
+    const metapropertiesData = {
+      'property.brand': { id: 'ABC123', name: 'Brand' },
+      'property.style_number': { id: 'STYLE001', name: 'Style_Number' },
+      'property.color_code': { id: 'COLOR001', name: 'RLM_NRF_Color_Code' },
+      'property.angle_code': { id: 'ANGLE001', name: 'Ecom_Angle_Code' },
+      'property.angle_name': { id: 'ANGLENAME001', name: 'Angle_Name' },
+      'property.date_created': { id: 'DATE001', name: 'Date_Created' },
+      'property.shot_type': { id: 'SHOTTYPE001', name: 'Shot_Type' },
+      'property.shotlist': { id: 'SHOTLIST001', name: 'Shotlist' },
+      'property.photographer': { id: 'PHOTO001', name: 'Photographer' },
+      'property.model': { id: 'MODEL002', name: 'Model' },
+      'property.stylist': { id: 'STYLIST001', name: 'Stylist' },
+      'property.art_director': { id: 'ARTDIR001', name: 'Art_Director' },
+      'property.image_width': { id: 'WIDTH001', name: 'Image_Width' },
+      'property.image_height': { id: 'HEIGHT001', name: 'Image_Height' },
+      'property.hair_makeup': { id: 'HAIR001', name: 'Hair_Makeup' },
+      'property.location': { id: 'LOCATION001', name: 'Location' },
+      'property.digital_tech': { id: 'DIGTECH001', name: 'Digital_Tech' },
+      'property.photographer_assistant': { id: 'PHOTOASST001', name: 'Photographer_Assistant' },
+      'property.stylist_assistant': { id: 'STYLEASST001', name: 'Stylist_Assistant' },
+      'property.ratio': { id: 'RATIO001', name: 'Ratio' },
+      'property.model_exif': { id: 'MODEL001', name: 'Exif_Field_Model' },
+      'property.exposure': { id: 'EXPOSURE001', name: 'Exposure_Time' },
+      'property.fnumber': { id: 'FNUMBER001', name: 'F_Number' },
+      'property.shutter': { id: 'SHUTTER001', name: 'Shutter_Speed' },
+      'property.aperture': { id: 'APERTURE001', name: 'Aperture_Value' },
+      'property.max_aperture': { id: 'MAXAPERTURE001', name: 'Max_Aperture_Value' },
+      'property.metering': { id: 'METERING001', name: 'Metering_Mode' },
+      'property.season': { id: 'SEASON001', name: 'Season' },
+      'property.year': { id: 'YEAR001', name: 'Year' },
+      'property.asset_purpose': { id: 'ASSETPURPOSE001', name: 'Asset_Purpose' },
+      'property.asset_subtype': { id: 'ASSETSUBTYPE001', name: 'Asset_Subtype' },
+      'property.asset_type': { id: 'ASSETTYPE001', name: 'Asset_Type' },
+      'property.program': { id: 'PROGRAM001', name: 'Program' },
+      'property.asset_status': { id: 'ASSETSTATUS001', name: 'Asset_Status' },
+      'property.recognized_faces': { id: 'FACES001', name: 'Recognized_Faces' },
+      'property.style_number_rlm_code': { id: 'STYLERLM001', name: 'Style_Number_RLM_Code' },
+    };
+    mockAxiosGet.mockResolvedValueOnce({ data: metapropertiesData });
+    mockAxiosGet.mockResolvedValueOnce({ data: { media: [] } }); // findMedia: no matching asset
 
     // Mock axios download from CreativeDrive
     mockAxiosGet.mockResolvedValueOnce({
@@ -133,48 +175,6 @@ describe('AssetMigrationProcessorLambda', () => {
     // Mock Bynder poll (success on first call)
     mockAxiosGet.mockResolvedValueOnce({
       data: { itemsDone: ['test-import-id'] },
-    });
-
-    // Mock Bynder get metaproperties - includes all fields used in buildMetapropertiesPayload
-    mockAxiosGet.mockResolvedValueOnce({
-      data: {
-        'property.brand': { id: 'ABC123', name: 'Brand' },
-        'property.style_number': { id: 'STYLE001', name: 'Style_Number' },
-        'property.color_code': { id: 'COLOR001', name: 'RLM_NRF_Color_Code' },
-        'property.angle_code': { id: 'ANGLE001', name: 'Ecom_Angle_Code' },
-        'property.angle_name': { id: 'ANGLENAME001', name: 'Angle_Name' },
-        'property.date_created': { id: 'DATE001', name: 'Date_Created' },
-        'property.shot_type': { id: 'SHOTTYPE001', name: 'Shot_Type' },
-        'property.shotlist': { id: 'SHOTLIST001', name: 'Shotlist' },
-        'property.photographer': { id: 'PHOTO001', name: 'Photographer' },
-        'property.model': { id: 'MODEL002', name: 'Model' },
-        'property.stylist': { id: 'STYLIST001', name: 'Stylist' },
-        'property.art_director': { id: 'ARTDIR001', name: 'Art_Director' },
-        'property.image_width': { id: 'WIDTH001', name: 'Image_Width' },
-        'property.image_height': { id: 'HEIGHT001', name: 'Image_Height' },
-        'property.hair_makeup': { id: 'HAIR001', name: 'Hair_Makeup' },
-        'property.location': { id: 'LOCATION001', name: 'Location' },
-        'property.digital_tech': { id: 'DIGTECH001', name: 'Digital_Tech' },
-        'property.photographer_assistant': { id: 'PHOTOASST001', name: 'Photographer_Assistant' },
-        'property.stylist_assistant': { id: 'STYLEASST001', name: 'Stylist_Assistant' },
-        'property.ratio': { id: 'RATIO001', name: 'Ratio' },
-        'property.model_exif': { id: 'MODEL001', name: 'Exif_Field_Model' },
-        'property.exposure': { id: 'EXPOSURE001', name: 'Exposure_Time' },
-        'property.fnumber': { id: 'FNUMBER001', name: 'F_Number' },
-        'property.shutter': { id: 'SHUTTER001', name: 'Shutter_Speed' },
-        'property.aperture': { id: 'APERTURE001', name: 'Aperture_Value' },
-        'property.max_aperture': { id: 'MAXAPERTURE001', name: 'Max_Aperture_Value' },
-        'property.metering': { id: 'METERING001', name: 'Metering_Mode' },
-        'property.season': { id: 'SEASON001', name: 'Season' },
-        'property.year': { id: 'YEAR001', name: 'Year' },
-        'property.asset_purpose': { id: 'ASSETPURPOSE001', name: 'Asset_Purpose' },
-        'property.asset_subtype': { id: 'ASSETSUBTYPE001', name: 'Asset_Subtype' },
-        'property.asset_type': { id: 'ASSETTYPE001', name: 'Asset_Type' },
-        'property.program': { id: 'PROGRAM001', name: 'Program' },
-        'property.asset_status': { id: 'ASSETSTATUS001', name: 'Asset_Status' },
-        'property.recognized_faces': { id: 'FACES001', name: 'Recognized_Faces' },
-        'property.style_number_rlm_code': { id: 'STYLERLM001', name: 'Style_Number_RLM_Code' },
-      },
     });
 
     // Mock Bynder save media
@@ -474,48 +474,12 @@ describe('AssetMigrationProcessorLambda', () => {
       })
       .mockResolvedValueOnce({}); // UpdateCommand (UPLOADED)
 
-    // Mock Bynder OAuth token
+    // Mock Bynder OAuth token (used by findMedia then uploadFile)
     mockAxiosPost.mockResolvedValueOnce({
       data: { access_token: 'test-token', token_type: 'bearer', expires_in: 3600 },
     });
 
-    // Mock axios download from CreativeDrive
-    mockAxiosGet.mockResolvedValueOnce({
-      data: Buffer.from('test data'),
-      headers: { 'content-type': 'image/tiff' },
-    });
-
-    // Mock Bynder get endpoint
-    mockAxiosGet.mockResolvedValueOnce({
-      data: 'https://s3.amazonaws.com/test-bucket',
-    });
-
-    // Mock Bynder init upload
-    mockAxiosPost.mockResolvedValueOnce({
-      data: {
-        multipart_params: { key: 'test-key', policy: 'test-policy' },
-        s3file: { uploadid: 'test-upload-id', targetid: 'test-target-id' },
-        s3_filename: 'pluploads/test-uuid/test-image.tif',
-      },
-    });
-
-    // Mock S3 upload (chunk)
-    mockAxiosPost.mockResolvedValueOnce({ status: 202, statusText: 'OK' });
-    // Mock S3 upload (chunk)
-    mockAxiosPost.mockResolvedValueOnce({ status: 202, statusText: 'OK' });
-
-    // Mock Bynder register chunk
-    mockAxiosPost.mockResolvedValueOnce({ data: {} });
-
-    // Mock Bynder finalize
-    mockAxiosPost.mockResolvedValueOnce({ data: { importId: 'test-import-id' } });
-
-    // Mock Bynder poll (success on first call)
-    mockAxiosGet.mockResolvedValueOnce({
-      data: { itemsDone: ['test-import-id'] },
-    });
-
-    // Mock Bynder get metaproperties - includes all fields used in buildMetapropertiesPayload
+    // findMedia runs first: metaproperties get, then media search get (no match)
     mockAxiosGet.mockResolvedValueOnce({
       data: {
         'property.brand': { id: 'ABC123', name: 'Brand' },
@@ -555,6 +519,41 @@ describe('AssetMigrationProcessorLambda', () => {
         'property.recognized_faces': { id: 'FACES001', name: 'Recognized_Faces' },
         'property.style_number_rlm_code': { id: 'STYLERLM001', name: 'Style_Number_RLM_Code' },
       },
+    });
+    mockAxiosGet.mockResolvedValueOnce({ data: { media: [] } }); // findMedia: no matching asset
+
+    // Mock axios download from CreativeDrive
+    mockAxiosGet.mockResolvedValueOnce({
+      data: Buffer.from('test data'),
+      headers: { 'content-type': 'image/tiff' },
+    });
+
+    // Mock Bynder get endpoint
+    mockAxiosGet.mockResolvedValueOnce({
+      data: 'https://s3.amazonaws.com/test-bucket',
+    });
+
+    // Mock Bynder init upload
+    mockAxiosPost.mockResolvedValueOnce({
+      data: {
+        multipart_params: { key: 'test-key', policy: 'test-policy' },
+        s3file: { uploadid: 'test-upload-id', targetid: 'test-target-id' },
+        s3_filename: 'pluploads/test-uuid/test-image.tif',
+      },
+    });
+
+    // Mock S3 upload (chunk)
+    mockAxiosPost.mockResolvedValueOnce({ status: 202, statusText: 'OK' });
+
+    // Mock Bynder register chunk
+    mockAxiosPost.mockResolvedValueOnce({ data: {} });
+
+    // Mock Bynder finalize
+    mockAxiosPost.mockResolvedValueOnce({ data: { importId: 'test-import-id' } });
+
+    // Mock Bynder poll (success on first call)
+    mockAxiosGet.mockResolvedValueOnce({
+      data: { itemsDone: ['test-import-id'] },
     });
 
     // Mock Bynder save media
