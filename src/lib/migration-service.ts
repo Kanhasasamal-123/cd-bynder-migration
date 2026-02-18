@@ -62,7 +62,7 @@ export class MigrationService {
     let targetBynderId: string | undefined = asset.existingBynderId;
     let addAsAdditionalFile = false;
     if (!targetBynderId && styleNumber && colorCode && angleCode) {
-      const matchingMediaId = await this.bynderClient.findMedia(styleNumber, colorCode, angleCode);
+      const matchingMediaId = await this.bynderClient.findMedia(styleNumber, colorCode, angleCode, onProgress);
       if (matchingMediaId) {
         targetBynderId = matchingMediaId;
         addAsAdditionalFile = true;
