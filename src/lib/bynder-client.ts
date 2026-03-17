@@ -177,13 +177,13 @@ export class BynderClient {
       let monthValue = assetMetadata['month'].substring(0, 2);
       const yearValue = '20' + assetMetadata['month'].substring(2, 4);
       if (monthValue === 'RE') {
-        monthValue = 'RE Resort';
+        monthValue = 'Resort';
       } else if (monthValue === 'SP') {
-        monthValue = 'SP Spring';
+        monthValue = 'Spring';
       } else if (monthValue === 'TR') {
-        monthValue = 'TR Trans';
+        monthValue = 'Trans';
       } else if (monthValue === 'FA') {
-        monthValue = 'FA Fall';
+        monthValue = 'Fall';
       }
       this.mapFieldToPayload(metapropertiesPayload, monthValue, 'Season');
       this.mapFieldToPayload(metapropertiesPayload, yearValue, 'Year');
