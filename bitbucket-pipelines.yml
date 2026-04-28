@@ -293,7 +293,7 @@ pipelines:
             - export INGEST_LAMBDA=${INGEST_LAMBDA:-dam-migration-ingest-prod}
             - export DIVISION_ID=76
             - export SYNC_LAST_DAYS=1
-            - export MAX_ASSETS=1000
+            - export MAX_ASSETS=5000
             - export MODE=full
             - export FETCH_SORT=desc
             - echo "=========================================="
