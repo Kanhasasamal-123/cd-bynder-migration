@@ -84,6 +84,7 @@ describe('AssetMigrationProcessorLambda', () => {
           originalFilename: 'test-image.tif',
           filesize: 3570356,
           extension: 'tif',
+          divisionId: '76',
           sourceUrl: 'https://cdn.example.com/assets/test.tif',
           publicUrl: 'https://cdn.example.com/assets/test.tif',
           metadata: {
@@ -369,6 +370,7 @@ describe('AssetMigrationProcessorLambda', () => {
           status: 'PENDING',
           originalFilename: 'test-image.tif',
           filesize: 3570356,
+          divisionId: '76',
           sourceUrl: 'https://cdn.example.com/assets/test.tif',
           publicUrl: 'https://cdn.example.com/assets/test.tif',
         },
@@ -462,6 +464,7 @@ describe('AssetMigrationProcessorLambda', () => {
           originalFilename: 'test-image.tif',
           filesize: 3570356,
           extension: 'tif',
+          divisionId: '76',
           sourceUrl: 'https://cdn.example.com/assets/test.tif',
           publicUrl: 'https://cdn.example.com/assets/test.tif',
           metadata: {
@@ -613,6 +616,7 @@ describe('AssetMigrationProcessorLambda', () => {
           originalFilename: 'test-image.tif',
           filesize: 3570356,
           extension: 'tif',
+          divisionId: '76',
           sourceUrl: 'https://cdn.example.com/assets/test.tif',
           publicUrl: 'https://cdn.example.com/assets/test.tif',
           metadata: {
@@ -629,6 +633,18 @@ describe('AssetMigrationProcessorLambda', () => {
     mockAxiosPost.mockResolvedValueOnce({
       data: { access_token: 'test-token', token_type: 'bearer', expires_in: 3600 },
     });
+
+    // findMedia runs first: metaproperties get, then media search get (no match)
+    mockAxiosGet.mockResolvedValueOnce({
+      data: {
+        'property.brand': { id: 'ABC123', name: 'Brand' },
+        'property.style_number': { id: 'STYLE001', name: 'Style_Number' },
+        'property.color_code': { id: 'COLOR001', name: 'RLM_NRF_Color_Code' },
+        'property.angle_code': { id: 'ANGLE001', name: 'Ecom_Angle_Code' },
+        'property.style_number_rlm_code': { id: 'STYLERLM001', name: 'Style_Number_RLM_Code' },
+      },
+    });
+    mockAxiosGet.mockResolvedValueOnce({ data: { media: [] } }); // findMedia: no matching asset
 
     // Mock axios download from CreativeDrive
     mockAxiosGet.mockResolvedValueOnce({
