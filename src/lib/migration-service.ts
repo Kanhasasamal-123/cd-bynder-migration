@@ -11,6 +11,8 @@ export interface MigrationResult {
   creativeDriveAssetId: string;
   bynderId: string;
   filename: string;
+  aborted?: boolean;
+  abortReason?: string;
 }
 
 export interface MigrationProgress {
@@ -25,6 +27,13 @@ export interface MigrationAsset {
   publicUrl: string;
   metadata?: Record<string, string>;
   existingBynderId?: string;
+  /**
+   * When true, the asset must be attached to an existing Bynder asset.
+   * If no matching asset is found, migration is aborted rather than creating
+   * a standalone new asset. Used for white-background assets (non-div-76)
+   * that should only exist as additional files on a grey-background asset.
+   */
+  requiresExistingAsset?: boolean;
 }
 
 export interface MigrationOptions {
@@ -72,6 +81,24 @@ export class MigrationService {
           details: { styleNumber, colorCode, angleCode, bynderId: matchingMediaId },
         });
       }
+    }
+
+    // If this asset requires an existing Bynder asset (e.g. white BG that must attach
+    // to a grey BG) and none was found, abort rather than creating a standalone asset.
+    if (asset.requiresExistingAsset && !targetBynderId) {
+      const abortReason = 'No matching grey-background asset found in Bynder; white-background asset cannot be uploaded as a standalone new asset';
+      onProgress?.({
+        stage: 'abort',
+        message: abortReason,
+        details: { creativeDriveAssetId: asset.creativeDriveAssetId, filename: asset.originalFilename },
+      });
+      return {
+        creativeDriveAssetId: asset.creativeDriveAssetId,
+        bynderId: '',
+        filename: asset.originalFilename,
+        aborted: true,
+        abortReason,
+      };
     }
 
     if (asset.existingBynderId) {

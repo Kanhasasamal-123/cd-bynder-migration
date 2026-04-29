@@ -278,6 +278,18 @@ export class CreativeDriveClient {
   }
 
   /**
+   * Fetch a single asset by its numeric ID (returns asset attributes including original_filename).
+   */
+  async getAssetById(assetId: string): Promise<AssetWithPublicUrl> {
+    const response = await this.makeRequest<{ data: AssetWithPublicUrl }>(
+      'get',
+      `${CREATIVE_DRIVE_BASE_URL}/assets/${assetId}`,
+      { headers: { Authorization: this.credentials.apiKey } }
+    );
+    return response.data;
+  }
+
+  /**
    * Fetch metadata for an asset
    */
   async getAssetMetadata(assetId: string): Promise<AssetMetadata[]> {

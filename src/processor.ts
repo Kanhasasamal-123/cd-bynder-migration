@@ -21,10 +21,14 @@ interface MigrationRecord {
   extension: string;
   sourceUrl: string;
   publicUrl: string;
+  divisionId?: string;
   bynderId?: string;
   errorMessage?: string;
   metadata: Record<string, string>;
 }
+
+/** Division 76 contains grey-background assets. All other divisions are white-background. */
+const GREY_BACKGROUND_DIVISION_ID = '76';
 
 async function getBynderCredentials(): Promise<BynderCredentials> {
   const command = new GetSecretValueCommand({ SecretId: BYNDER_SECRET_NAME });
@@ -105,12 +109,16 @@ async function processAsset(creativeDriveAssetId: string): Promise<void> {
     const migrationService = new MigrationService(creativeDriveClient, bynderClient);
 
     // Convert DynamoDB record to MigrationAsset format
+    const isGreyBackground = record.divisionId === GREY_BACKGROUND_DIVISION_ID;
     const asset: MigrationAsset = {
       creativeDriveAssetId: record.creativeDriveAssetId,
       originalFilename: record.originalFilename,
       publicUrl: record.publicUrl,
       metadata: record.metadata,
       existingBynderId: record.bynderId,
+      // White-background assets (non-div-76) must attach to an existing grey-background
+      // Bynder asset. If no match is found they should be aborted, not created standalone.
+      requiresExistingAsset: !isGreyBackground,
     };
 
     const result = await migrationService.migrateAsset(asset, {
@@ -121,6 +129,14 @@ async function processAsset(creativeDriveAssetId: string): Promise<void> {
         }
       },
     });
+
+    if (result.aborted) {
+      await updateAssetStatus(creativeDriveAssetId, 'ABORTED', { errorMessage: result.abortReason });
+      console.log(
+        `Asset ${creativeDriveAssetId} aborted: ${result.abortReason}`
+      );
+      return;
+    }
 
     await updateAssetStatus(creativeDriveAssetId, 'UPLOADED', { bynderId: result.bynderId });
 
