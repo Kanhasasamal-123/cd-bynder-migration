@@ -567,7 +567,6 @@ export class BynderClient {
       params,
     });
 
-
     const data = response.data;
     let candidates: Record<string, unknown>[] = [];
     if (Array.isArray(data)) {
@@ -582,7 +581,7 @@ export class BynderClient {
 
     onProgress?.({
       stage: 'additional_file',
-      message: `Found existing assets for style number: `,
+      message: `Found existing assets for style number: ${styleNumber}`,
       details: {
         candidates: candidates,
       },
@@ -591,11 +590,22 @@ export class BynderClient {
     const normalizedColor = (colorCode || '').trim();
     const normalizedAngle = (angleCode || '').trim();
 
+    onProgress?.({
+      stage: 'additional_file',
+      message: `Matching against candidates using colorCode="${normalizedColor}" angleCode="${normalizedAngle}"`,
+      details: { normalizedColor, normalizedAngle },
+    });
+
     for (const item of candidates) {
       const itemColor = this.getMetapropertyValueFromMedia(item, 'RLM_NRF_Color_Code');
       const itemAngle = this.getMetapropertyValueFromMedia(item, 'Ecom_Angle_Code');
       const colorMatch = normalizedColor ? (itemColor || '').trim() === normalizedColor : true;
       const angleMatch = normalizedAngle ? (itemAngle || '').trim() === normalizedAngle : true;
+      onProgress?.({
+        stage: 'additional_file',
+        message: `Candidate "${(item as { name?: string }).name}": RLM_NRF_Color_Code="${itemColor}" Ecom_Angle_Code="${itemAngle}" colorMatch=${colorMatch} angleMatch=${angleMatch}`,
+        details: { id: (item as { id?: string }).id, itemColor, itemAngle, colorMatch, angleMatch },
+      });
       if (colorMatch && angleMatch) {
         const id = (item as { id?: string }).id;
         onProgress?.({
