@@ -589,6 +589,10 @@ export class BynderClient {
 
     const normalizedColor = (colorCode || '').trim();
     const normalizedAngle = (angleCode || '').trim();
+    // Color codes are numeric (e.g. "96" and "0096" are the same). Compare as integers
+    // so that leading-zero differences between the filename and Bynder metadata don't
+    // cause false mismatches.
+    const normalizedColorInt = normalizedColor ? parseInt(normalizedColor, 10) : NaN;
 
     onProgress?.({
       stage: 'additional_file',
@@ -599,7 +603,11 @@ export class BynderClient {
     for (const item of candidates) {
       const itemColor = this.getMetapropertyValueFromMedia(item, 'RLM_NRF_Color_Code');
       const itemAngle = this.getMetapropertyValueFromMedia(item, 'Ecom_Angle_Code');
-      const colorMatch = normalizedColor ? (itemColor || '').trim() === normalizedColor : true;
+      const colorMatch = normalizedColor
+        ? (!isNaN(normalizedColorInt) && !isNaN(parseInt(itemColor || '', 10))
+            ? parseInt(itemColor || '', 10) === normalizedColorInt
+            : (itemColor || '').trim() === normalizedColor)
+        : true;
       const angleMatch = normalizedAngle ? (itemAngle || '').trim() === normalizedAngle : true;
       onProgress?.({
         stage: 'additional_file',
