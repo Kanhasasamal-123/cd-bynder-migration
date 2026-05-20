@@ -452,18 +452,11 @@ export class BynderClient {
     // Step 6: Save media in Bynder
     await this.ensureMetapropertiesLoaded(authHeader);
 
-    // Apply filename fallback for style_number, color_code, and angle_code
+    // Always use filename for style/color/angle (CD metadata can be incorrect)
     const filenameMetadata = this.extractMetadataFromFilename(filename);
-
-    // If style_number is empty, use filename-derived value
-    if (!assetMetadata['style_number']) {
-      assetMetadata['style_number'] = filenameMetadata.styleNumber;
-    }
-
-    // If color_code is empty or less than 3 digits, use filename-derived value
-    if (!assetMetadata['color_code'] || assetMetadata['color_code'].length < 3) {
-      assetMetadata['color_code'] = filenameMetadata.colorCode;
-    }
+    assetMetadata['style_number'] = filenameMetadata.styleNumber;
+    assetMetadata['color_code'] = filenameMetadata.colorCode;
+    assetMetadata['angle_code'] = filenameMetadata.angleCode;
 
     // Different save flow for existing assets vs new assets
     // See: https://api.bynder.com/reference/saveuploadedfiletoexistingasset

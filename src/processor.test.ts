@@ -81,7 +81,7 @@ describe('AssetMigrationProcessorLambda', () => {
         Item: {
           creativeDriveAssetId: '595167',
           status: 'PENDING',
-          originalFilename: 'test-image.tif',
+          originalFilename: 'ST123-CC123_A01.tif',
           filesize: 3570356,
           extension: 'tif',
           divisionId: '76',
@@ -160,7 +160,7 @@ describe('AssetMigrationProcessorLambda', () => {
       data: {
         multipart_params: { key: 'test-key', policy: 'test-policy' },
         s3file: { uploadid: 'test-upload-id', targetid: 'test-target-id' },
-        s3_filename: 'pluploads/test-uuid/test-image.tif',
+        s3_filename: 'pluploads/test-uuid/ST123-CC123_A01.tif',
       },
     });
 
@@ -223,7 +223,7 @@ describe('AssetMigrationProcessorLambda', () => {
         Item: {
           creativeDriveAssetId: '595167',
           status: 'PENDING',
-          originalFilename: 'test-image.tif',
+          originalFilename: 'ST123-CC123_A01.tif',
           filesize: 3570356,
           extension: 'tif',
           sourceUrl: 'https://cdn.example.com/assets/test.tif',
@@ -260,7 +260,7 @@ describe('AssetMigrationProcessorLambda', () => {
       data: {
         multipart_params: { key: 'test-key', policy: 'test-policy' },
         s3file: { uploadid: 'test-upload-id', targetid: 'test-target-id' },
-        s3_filename: 'pluploads/test-uuid/test-image.tif',
+        s3_filename: 'pluploads/test-uuid/ST123-CC123_A01.tif',
       },
     });
 
@@ -368,7 +368,7 @@ describe('AssetMigrationProcessorLambda', () => {
         Item: {
           creativeDriveAssetId: '595167',
           status: 'PENDING',
-          originalFilename: 'test-image.tif',
+          originalFilename: 'ST123-CC123_A01.tif',
           filesize: 3570356,
           divisionId: '76',
           sourceUrl: 'https://cdn.example.com/assets/test.tif',
@@ -420,7 +420,7 @@ describe('AssetMigrationProcessorLambda', () => {
       Item: {
         creativeDriveAssetId: '595167',
         status: 'UPLOADED',
-        originalFilename: 'test-image.tif',
+        originalFilename: 'ST123-CC123_A01.tif',
         bynderId: 'bynder-123',
       },
     });
@@ -461,7 +461,7 @@ describe('AssetMigrationProcessorLambda', () => {
         Item: {
           creativeDriveAssetId: '595167',
           status: 'PENDING',
-          originalFilename: 'test-image.tif',
+          originalFilename: 'ST123-CC123_A01.tif',
           filesize: 3570356,
           extension: 'tif',
           divisionId: '76',
@@ -541,7 +541,7 @@ describe('AssetMigrationProcessorLambda', () => {
       data: {
         multipart_params: { key: 'test-key', policy: 'test-policy' },
         s3file: { uploadid: 'test-upload-id', targetid: 'test-target-id' },
-        s3_filename: 'pluploads/test-uuid/test-image.tif',
+        s3_filename: 'pluploads/test-uuid/ST123-CC123_A01.tif',
       },
     });
 
@@ -580,9 +580,9 @@ describe('AssetMigrationProcessorLambda', () => {
     expect(chunkRegistrationPayload).toBeDefined();
     expect(chunkRegistrationPayload.get('targetid')).toBe('test-target-id');
     expect(chunkRegistrationPayload.get('filename')).toMatch(/\/p1$/); // Should be full path with /p1 appended
-    expect(chunkRegistrationPayload.get('s3_filename')).toBe('pluploads/test-uuid/test-image.tif');
+    expect(chunkRegistrationPayload.get('s3_filename')).toBe('pluploads/test-uuid/ST123-CC123_A01.tif');
     expect(chunkRegistrationPayload.get('chunks')).toBe('1'); // Note: URLSearchParams stores as string
-    expect(chunkRegistrationPayload.get('original_filename')).toBe('test-image.tif');
+    expect(chunkRegistrationPayload.get('original_filename')).toBe('ST123-CC123_A01.tif');
   });
 
   it('should handle 500 error from Bynder chunk registration', async () => {
@@ -613,7 +613,7 @@ describe('AssetMigrationProcessorLambda', () => {
         Item: {
           creativeDriveAssetId: '595167',
           status: 'PENDING',
-          originalFilename: 'test-image.tif',
+          originalFilename: 'ST123-CC123_A01.tif',
           filesize: 3570356,
           extension: 'tif',
           divisionId: '76',
@@ -662,7 +662,7 @@ describe('AssetMigrationProcessorLambda', () => {
       data: {
         multipart_params: { key: 'test-key', policy: 'test-policy' },
         s3file: { uploadid: 'test-upload-id', targetid: 'test-target-id' },
-        s3_filename: 'pluploads/test-uuid/test-image.tif',
+        s3_filename: 'pluploads/test-uuid/ST123-CC123_A01.tif',
       },
     });
 
@@ -682,7 +682,7 @@ describe('AssetMigrationProcessorLambda', () => {
         data: JSON.stringify({
           id: 'test-upload-id',
           targetid: 'test-target-id',
-          filename: 'pluploads/test-uuid/test-image.tif/p1', // Old broken format
+          filename: 'pluploads/test-uuid/ST123-CC123_A01.tif/p1', // Old broken format
           chunkNumber: 1,
         }),
       },

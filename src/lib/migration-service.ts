@@ -60,11 +60,9 @@ export class MigrationService {
       asset.metadata = {};
     }
 
-    // Resolve style_number, color_code, angle_code for matching (metadata or from filename)
+    // Always derive style/color/angle from filename (CD metadata can be wrong)
     const filenameMeta = this.bynderClient.extractMetadataFromFilename(asset.originalFilename);
-    const styleNumber = asset.metadata?.style_number || filenameMeta.styleNumber;
-    const colorCode = asset.metadata?.color_code || filenameMeta.colorCode;
-    const angleCode = asset.metadata?.angle_code || filenameMeta.angleCode;
+    const { styleNumber, colorCode, angleCode } = filenameMeta;
 
     // When no existingBynderId, check if an asset in Bynder matches Style_Number_RLM_Code and angle code
     // If so, we will add this file as an additional file to that existing asset (finalize additional file API)
@@ -132,11 +130,21 @@ export class MigrationService {
       },
     });
 
+    // Additional files: upload file only — do not change Bynder asset attributes
+    const uploadMetadata = addAsAdditionalFile
+      ? {}
+      : {
+          ...asset.metadata,
+          style_number: styleNumber,
+          color_code: colorCode,
+          angle_code: angleCode,
+        };
+
     // Step 3: Upload to Bynder (new asset, new version, or additional file on matching asset)
     const bynderId = await this.bynderClient.uploadFile(
       buffer,
       asset.originalFilename,
-      asset.metadata || {},
+      uploadMetadata,
       {
         onProgress: (uploadProgress) => {
           onProgress?.({
