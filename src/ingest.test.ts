@@ -433,4 +433,57 @@ describe('CreativeDriveIngestLambda', () => {
       handler({ action: 'clear-bynderId-state', divisionId: '45' }, {} as any, {} as any)
     ).rejects.toThrow('folderId must be provided');
   });
+
+  it('clear-bynderId-state processes assets when CD returns ts_folder_id not folder_id', async () => {
+    mockAxiosPost
+      .mockResolvedValueOnce({ data: { data: [], meta: { total: 1 } } })
+      .mockResolvedValueOnce({
+        data: {
+          data: [
+            {
+              type: 'asset',
+              attributes: {
+                id: '4206785',
+                original_filename: 'test.tif',
+                original_filesize: 1,
+                extension: 'tif',
+                ts_folder_id: '104851',
+                division_id: '45',
+              },
+            },
+          ],
+          meta: { total: 1 },
+        },
+      });
+
+    mockDynamoSend.mockImplementation((cmd) => {
+      if (cmd.RequestItems) {
+        return Promise.resolve({
+          Responses: {
+            'test-table': [{ creativeDriveAssetId: '4206785', status: 'UPLOADED' }],
+          },
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    const result = await handler(
+      {
+        action: 'clear-bynderId-state',
+        divisionId: '45',
+        folderId: '104851',
+      },
+      {} as any,
+      {} as any
+    );
+
+    const body = JSON.parse(result.body);
+    expect(body.totalMatching).toBe(1);
+    expect(body.totalCleared).toBe(1);
+
+    const updateCalls = mockDynamoSend.mock.calls
+      .map(([cmd]) => cmd)
+      .filter((cmd) => cmd.UpdateExpression?.includes('REMOVE bynderId'));
+    expect(updateCalls[0].Key).toEqual({ creativeDriveAssetId: '4206785' });
+  });
 });

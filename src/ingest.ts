@@ -76,6 +76,31 @@ interface FetchedAsset {
   publicUrl: string;
 }
 
+/** CD assets often expose folder as ts_folder_id rather than folder_id (see dynamodb-client). */
+function mapCreativeDriveAssetToFetched(
+  attributes: {
+    id: string;
+    original_filename: string;
+    original_filesize: number;
+    extension: string;
+    folder_id?: string;
+    ts_folder_id?: string;
+    division_id?: string;
+    meta?: { image_origin?: string };
+  },
+  fallbackDivisionId: number
+): FetchedAsset {
+  return {
+    id: attributes.id,
+    original_filename: attributes.original_filename,
+    original_filesize: attributes.original_filesize,
+    extension: attributes.extension,
+    folder_id: String(attributes.folder_id ?? attributes.ts_folder_id ?? '').trim(),
+    division_id: String(attributes.division_id ?? fallbackDivisionId).trim(),
+    publicUrl: attributes.meta?.image_origin || '',
+  };
+}
+
 interface FetchAllAssetsParams {
   client: CreativeDriveClient;
   divisionId: number;
@@ -138,15 +163,9 @@ async function fetchAllAssets(params: FetchAllAssetsParams): Promise<FetchAllAss
       }
       
       if (result && result.assets) {
-        const mappedAssets = result.assets.map(a => ({
-          id: a.attributes.id,
-          original_filename: a.attributes.original_filename,
-          original_filesize: a.attributes.original_filesize,
-          extension: a.attributes.extension,
-          folder_id: a.attributes.folder_id || '',
-          division_id: a.attributes.division_id || String(divisionId),
-          publicUrl: a.attributes.meta?.image_origin || '',
-        }));
+        const mappedAssets = result.assets.map((a) =>
+          mapCreativeDriveAssetToFetched(a.attributes, divisionId)
+        );
         fetchedAssets.push(...mappedAssets);
       }
     }
@@ -237,15 +256,7 @@ async function fetchAllAssets(params: FetchAllAssetsParams): Promise<FetchAllAss
             shouldStop = true;
             break;
           }
-          allAssets.push({
-            id: a.attributes.id,
-            original_filename: a.attributes.original_filename,
-            original_filesize: a.attributes.original_filesize,
-            extension: a.attributes.extension,
-            folder_id: a.attributes.folder_id || '',
-            division_id: a.attributes.division_id || String(divisionId),
-            publicUrl: a.attributes.meta?.image_origin || '',
-          });
+          allAssets.push(mapCreativeDriveAssetToFetched(a.attributes, divisionId));
         }
       }
     }
@@ -327,19 +338,30 @@ async function handleClearBynderIdState(event: IngestEvent): Promise<{
     fetchSort,
   });
 
-  const matchingAssets = fetchedAssets.filter(
-    (a) => String(a.folder_id) === folderId && String(a.division_id) === divisionId
+  // CD searchAssets is already scoped by folderId + division; attribute folder fields can be
+  // missing or use ts_folder_id — do not drop fetched assets on a strict attribute filter.
+  let matchingAssets = fetchedAssets.filter(
+    (a) => a.folder_id === folderId && a.division_id === divisionId
   );
 
+  if (matchingAssets.length === 0 && fetchedAssets.length > 0) {
+    const sample = fetchedAssets[0];
+    console.warn(
+      `No assets matched folderId/divisionId on CD attributes; using all ${fetchedAssets.length} assets from folder-scoped search. Sample resolved fields:`,
+      { id: sample.id, folder_id: sample.folder_id, division_id: sample.division_id }
+    );
+    matchingAssets = fetchedAssets;
+  }
+
   console.log(
-    `Creative Drive returned ${fetchedAssets.length} assets; ${matchingAssets.length} match folderId=${folderId} divisionId=${divisionId}`
+    `Creative Drive returned ${fetchedAssets.length} assets; ${matchingAssets.length} will be processed for clear-bynderId-state (folderId=${folderId}, divisionId=${divisionId})`
   );
 
   if (matchingAssets.length === 0) {
     return {
       statusCode: 200,
       body: JSON.stringify({
-        message: 'No matching assets found in Creative Drive',
+        message: 'No assets found in Creative Drive for folder/division search',
         action: 'clear-bynderId-state',
         divisionId,
         folderId,
