@@ -285,22 +285,25 @@ export async function clearBynderIdForAsset(
     return;
   }
 
-  const updateParts = ['REMOVE bynderId', 'SET updatedAt = :updatedAt'];
   const expressionAttributeNames: Record<string, string> = {};
   const expressionAttributeValues: Record<string, string> = {
     ':updatedAt': now,
   };
 
+  const setParts = ['updatedAt = :updatedAt'];
   if (resetStatusToPending) {
-    updateParts.push('#status = :status');
+    setParts.push('#status = :status');
     expressionAttributeNames['#status'] = 'status';
     expressionAttributeValues[':status'] = 'PENDING';
   }
 
+  // REMOVE and SET are separate clauses (space-separated), not comma-joined
+  const updateExpression = `REMOVE bynderId SET ${setParts.join(', ')}`;
+
   const command = new UpdateCommand({
     TableName: tableName,
     Key: { creativeDriveAssetId },
-    UpdateExpression: updateParts.join(', '),
+    UpdateExpression: updateExpression,
     ExpressionAttributeNames:
       Object.keys(expressionAttributeNames).length > 0 ? expressionAttributeNames : undefined,
     ExpressionAttributeValues: expressionAttributeValues,

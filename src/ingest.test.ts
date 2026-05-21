@@ -371,6 +371,9 @@ describe('CreativeDriveIngestLambda', () => {
       .filter((cmd) => cmd.UpdateExpression?.includes('REMOVE bynderId'));
     expect(updateCalls).toHaveLength(2);
     expect(updateCalls[0].Key).toEqual({ creativeDriveAssetId: '1001' });
+    expect(updateCalls[0].UpdateExpression).toBe(
+      'REMOVE bynderId SET updatedAt = :updatedAt, #status = :status'
+    );
     expect(updateCalls[0].ExpressionAttributeValues[':status']).toBe('PENDING');
   });
 
