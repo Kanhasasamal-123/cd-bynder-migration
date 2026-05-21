@@ -130,8 +130,9 @@ export class MigrationService {
       },
     });
 
-    // Additional files: upload file only — do not change Bynder asset attributes
-    const uploadMetadata = addAsAdditionalFile
+    // Additional files: pass no metadata so Bynder attributes are never updated (file attach only).
+    // BynderClient.uploadFile enforces empty assetMetadata when addAsAdditionalFile is true.
+    const uploadMetadata: Record<string, string> = addAsAdditionalFile
       ? {}
       : {
           ...asset.metadata,

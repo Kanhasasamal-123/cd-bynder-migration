@@ -301,4 +301,136 @@ describe('CreativeDriveIngestLambda', () => {
     // Metadata fetch should happen in dry-run
     expect(mockAxiosGet).toHaveBeenCalled();
   });
+
+  it('clear-bynderId-state removes bynderId for assets in folder and division', async () => {
+    mockAxiosPost
+      .mockResolvedValueOnce({ data: { data: [], meta: { total: 2 } } })
+      .mockResolvedValueOnce({
+        data: {
+          data: [
+            {
+              type: 'asset',
+              attributes: {
+                id: '1001',
+                original_filename: 'a.tif',
+                original_filesize: 1,
+                extension: 'tif',
+                folder_id: '104851',
+                division_id: '45',
+              },
+            },
+            {
+              type: 'asset',
+              attributes: {
+                id: '1002',
+                original_filename: 'b.tif',
+                original_filesize: 1,
+                extension: 'tif',
+                folder_id: '104851',
+                division_id: '45',
+              },
+            },
+          ],
+          meta: { total: 2 },
+        },
+      });
+
+    mockDynamoSend.mockImplementation((cmd) => {
+      if (cmd.RequestItems) {
+        return Promise.resolve({
+          Responses: {
+            'test-table': [
+              { creativeDriveAssetId: '1001', status: 'UPLOADED' },
+              { creativeDriveAssetId: '1002', status: 'UPLOADED' },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    const result = await handler(
+      {
+        action: 'clear-bynderId-state',
+        divisionId: '45',
+        folderId: '104851',
+        maxAssets: 100,
+      },
+      {} as any,
+      {} as any
+    );
+
+    expect(result.statusCode).toBe(200);
+    const body = JSON.parse(result.body);
+    expect(body.action).toBe('clear-bynderId-state');
+    expect(body.totalCleared).toBe(2);
+    expect(body.totalMatching).toBe(2);
+
+    const updateCalls = mockDynamoSend.mock.calls
+      .map(([cmd]) => cmd)
+      .filter((cmd) => cmd.UpdateExpression?.includes('REMOVE bynderId'));
+    expect(updateCalls).toHaveLength(2);
+    expect(updateCalls[0].Key).toEqual({ creativeDriveAssetId: '1001' });
+    expect(updateCalls[0].ExpressionAttributeValues[':status']).toBe('PENDING');
+  });
+
+  it('clear-bynderId-state dry-run does not write to DynamoDB', async () => {
+    mockAxiosPost
+      .mockResolvedValueOnce({ data: { data: [], meta: { total: 1 } } })
+      .mockResolvedValueOnce({
+        data: {
+          data: [
+            {
+              type: 'asset',
+              attributes: {
+                id: '1001',
+                original_filename: 'a.tif',
+                original_filesize: 1,
+                extension: 'tif',
+                folder_id: '104851',
+                division_id: '45',
+              },
+            },
+          ],
+          meta: { total: 1 },
+        },
+      });
+
+    mockDynamoSend.mockImplementation((cmd) => {
+      if (cmd.RequestItems) {
+        return Promise.resolve({
+          Responses: {
+            'test-table': [{ creativeDriveAssetId: '1001', status: 'UPLOADED' }],
+          },
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    const result = await handler(
+      {
+        action: 'clear-bynderId-state',
+        divisionId: '45',
+        folderId: '104851',
+        dryRun: true,
+      },
+      {} as any,
+      {} as any
+    );
+
+    const body = JSON.parse(result.body);
+    expect(body.totalCleared).toBe(1);
+    expect(body.dryRun).toBe(true);
+
+    const removeCalls = mockDynamoSend.mock.calls.filter(
+      ([cmd]) => cmd.UpdateExpression?.includes('REMOVE bynderId')
+    );
+    expect(removeCalls).toHaveLength(0);
+  });
+
+  it('clear-bynderId-state requires folderId', async () => {
+    await expect(
+      handler({ action: 'clear-bynderId-state', divisionId: '45' }, {} as any, {} as any)
+    ).rejects.toThrow('folderId must be provided');
+  });
 });

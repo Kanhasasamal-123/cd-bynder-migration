@@ -2,7 +2,11 @@ import { Handler } from 'aws-lambda';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { CreativeDriveClient, AssetMetadata, SearchAssetsResult } from './lib/creativedrive-client';
 import { calculateDateRange } from './lib/utils/dateUtils';
-import { updateCreativeDriveAssetRecord, batchCheckAssetStatus } from './lib/dynamodb-client';
+import {
+  updateCreativeDriveAssetRecord,
+  batchCheckAssetStatus,
+  clearBynderIdForAsset,
+} from './lib/dynamodb-client';
 
 const secretsClient = new SecretsManagerClient({});
 
@@ -35,7 +39,11 @@ interface Asset {
   };
 }
 
+type IngestAction = 'ingest' | 'clear-bynderId-state';
+
 interface IngestEvent {
+  /** Default: ingest. Use clear-bynderId-state to REMOVE bynderId from tracker records. */
+  action?: IngestAction;
   maxAssets?: number;
   fetchOffset?: number;
   divisionId: string;
@@ -249,6 +257,176 @@ async function fetchAllAssets(params: FetchAllAssetsParams): Promise<FetchAllAss
   return { assets: allAssets, failures, totalAvailable };
 }
 
+const CLEAR_BYNDER_ID_DEFAULT_SYNC_MINUTES = 52560000; // ~100 years — fetch all assets in folder
+
+async function handleClearBynderIdState(event: IngestEvent): Promise<{
+  statusCode: number;
+  body: string;
+}> {
+  const divisionId = event.divisionId?.trim();
+  const folderId = event.folderId?.trim();
+  const isDryRun = event.dryRun === true;
+  const maxAssets = event.maxAssets ?? Infinity;
+  const fetchOffset = event.fetchOffset ?? 0;
+  const fetchSort = event.fetchSort || 'desc';
+
+  if (!divisionId) {
+    throw new Error('divisionId must be provided');
+  }
+  if (!folderId) {
+    throw new Error('folderId must be provided for clear-bynderId-state');
+  }
+
+  const numericDivisionId = Number(divisionId);
+  if (isNaN(numericDivisionId)) {
+    throw new Error(`Invalid divisionId: ${divisionId}`);
+  }
+
+  const hasSyncLastDays = Boolean(event.syncLastDays && event.syncLastDays > 0);
+
+  let dateRange: { start: string; end: string };
+  if (event.dateFrom?.trim() && event.dateTo?.trim()) {
+    const parseDateDDMMYY = (dateStr: string): string => {
+      const parts = dateStr.split('/');
+      if (parts.length !== 3) {
+        throw new Error(`Invalid date format: ${dateStr}. Expected DD/MM/YY`);
+      }
+      const [day, month, year] = parts;
+      const fullYear = parseInt(year, 10) < 50 ? `20${year}` : `19${year}`;
+      return `${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    };
+    dateRange = {
+      start: parseDateDDMMYY(event.dateFrom.trim()),
+      end: parseDateDDMMYY(event.dateTo.trim()),
+    };
+  } else {
+    const syncWindowMinutes = hasSyncLastDays
+      ? event.syncLastDays! * 24 * 60
+      : CLEAR_BYNDER_ID_DEFAULT_SYNC_MINUTES;
+    dateRange = calculateDateRange(syncWindowMinutes);
+  }
+
+  console.log('Starting clear-bynderId-state', {
+    divisionId,
+    folderId,
+    dryRun: isDryRun,
+    maxAssets: maxAssets === Infinity ? 'unlimited' : maxAssets,
+    dateRange,
+  });
+
+  const credentials = await getCreativeDriveCredentials();
+  const client = new CreativeDriveClient({ apiKey: credentials.apiKey });
+
+  const { assets: fetchedAssets, failures } = await fetchAllAssets({
+    client,
+    divisionId: numericDivisionId,
+    folderId,
+    dateRange,
+    fetchOffset,
+    maxAssets,
+    fetchSort,
+  });
+
+  const matchingAssets = fetchedAssets.filter(
+    (a) => String(a.folder_id) === folderId && String(a.division_id) === divisionId
+  );
+
+  console.log(
+    `Creative Drive returned ${fetchedAssets.length} assets; ${matchingAssets.length} match folderId=${folderId} divisionId=${divisionId}`
+  );
+
+  if (matchingAssets.length === 0) {
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        message: 'No matching assets found in Creative Drive',
+        action: 'clear-bynderId-state',
+        divisionId,
+        folderId,
+        totalFetched: fetchedAssets.length,
+        totalMatching: 0,
+        totalCleared: 0,
+        totalSkippedNotInDynamo: 0,
+        dryRun: isDryRun,
+        failures: failures.length > 0 ? failures : undefined,
+      }),
+    };
+  }
+
+  const assetIds = matchingAssets.map((a) => String(a.id));
+  const existingStatus = await batchCheckAssetStatus(getTableName(), assetIds);
+
+  let totalCleared = 0;
+  let totalSkippedNotInDynamo = 0;
+  const clearFailures: IngestionFailure[] = [...failures];
+
+  for (let i = 0; i < matchingAssets.length; i += WRITE_BATCH_SIZE) {
+    const batch = matchingAssets.slice(i, i + WRITE_BATCH_SIZE);
+    await Promise.all(
+      batch.map(async (asset) => {
+        const id = String(asset.id);
+        const status = existingStatus.get(id);
+
+        if (!status?.exists) {
+          totalSkippedNotInDynamo++;
+          console.log(`Skipping ${id}: not found in DynamoDB`);
+          return;
+        }
+
+        try {
+          await clearBynderIdForAsset(getTableName(), id, { dryRun: isDryRun });
+          totalCleared++;
+          console.log(
+            `${isDryRun ? 'Would clear' : 'Cleared'} bynderId for ${id} (folder ${folderId}, division ${divisionId})`
+          );
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+          clearFailures.push({
+            assetId: id,
+            divisionId,
+            filename: asset.original_filename,
+            error: errorMsg,
+            stage: 'write_dynamodb',
+          });
+        }
+      })
+    );
+  }
+
+  const resultBody = {
+    message:
+      clearFailures.length === 0
+        ? 'clear-bynderId-state completed successfully'
+        : `clear-bynderId-state completed with ${clearFailures.length} failure(s)`,
+    action: 'clear-bynderId-state' as const,
+    divisionId,
+    folderId,
+    totalFetched: fetchedAssets.length,
+    totalMatching: matchingAssets.length,
+    totalCleared,
+    totalSkippedNotInDynamo,
+    totalFailures: clearFailures.length,
+    dryRun: isDryRun,
+    failures:
+      clearFailures.length > 0
+        ? clearFailures.map((f) => ({
+            stage: f.stage,
+            error: f.error,
+            assetId: f.assetId,
+            filename: f.filename,
+            divisionId: f.divisionId,
+          }))
+        : undefined,
+  };
+
+  console.log('clear-bynderId-state completed', resultBody);
+
+  return {
+    statusCode: 200,
+    body: JSON.stringify(resultBody),
+  };
+}
+
 async function getCreativeDriveCredentials(): Promise<CreativeDriveCredentials> {
   const command = new GetSecretValueCommand({ SecretId: getSecretName() });
   const response = await secretsClient.send(command);
@@ -261,9 +439,14 @@ async function getCreativeDriveCredentials(): Promise<CreativeDriveCredentials> 
 }
 
 export const handler: Handler = async (event: IngestEvent) => {
-  console.log('Starting CreativeDrive ingestion process', { event });
+  const action: IngestAction = event.action ?? 'ingest';
+  console.log(`Starting ingest lambda (action=${action})`, { event });
 
   try {
+    if (action === 'clear-bynderId-state') {
+      return await handleClearBynderIdState(event);
+    }
+
     const credentials = await getCreativeDriveCredentials();
     const client = new CreativeDriveClient({
       apiKey: credentials.apiKey,

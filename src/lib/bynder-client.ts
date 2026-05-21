@@ -237,7 +237,10 @@ export class BynderClient {
   }
 
   /**
-   * Upload file to Bynder
+   * Upload file to Bynder.
+   *
+   * @param assetMetadata Creative Drive fields mapped to Bynder metaproperties on create/new-version.
+   *   Must be `{}` when `addAsAdditionalFile` is true — additional-file uploads must not change attributes.
    */
   async uploadFile(
     buffer: Buffer,
@@ -247,7 +250,10 @@ export class BynderClient {
       chunkSize?: number;
       onProgress?: (progress: { current: number; total: number; percentage: number }) => void;
       mediaId?: string;
-      /** When true and mediaId is set, finalize as additional file on existing asset (Step 4 "Finalize additional file") */
+      /**
+       * When true and mediaId is set, finalize as additional file on existing asset only.
+       * Skips metaproperty save/update; assetMetadata must be empty.
+       */
       addAsAdditionalFile?: boolean;
     } = {}
   ): Promise<string> {
@@ -402,7 +408,13 @@ export class BynderClient {
     let importId: string | undefined;
 
     if (mediaId && addAsAdditionalFile) {
-      // Finalize additional file: add uploaded file as new file on existing asset
+      if (Object.keys(assetMetadata).length > 0) {
+        throw new Error(
+          'assetMetadata must be empty when addAsAdditionalFile is true; additional-file uploads must not modify Bynder attributes'
+        );
+      }
+
+      // Attach file only — no buildMetapropertiesPayload / updateMediaMetadata (see Step 6 below).
       // https://api.bynder.com/reference/finalize-additional-file
       const additionalFileEndpoint = `${this.credentials.apiBaseUrl}/api/v4/media/${mediaId}/save/additional/${uploadData.s3file.uploadid}/`;
       const additionalResponse = await axios.post(additionalFileEndpoint, chunkData, {

@@ -281,6 +281,101 @@ pipelines:
                 exit 1
               fi
 
+    clear-bynder-id-state:
+      - variables:
+          - name: DIVISION_ID
+            default: ""
+          - name: FOLDER_ID
+            default: ""
+          - name: MAX_ASSETS
+            default: "10000"
+          - name: FETCH_OFFSET
+            default: ""
+          - name: SYNC_LAST_DAYS
+            default: ""
+          - name: DATE_FROM
+            default: ""
+          - name: DATE_TO
+            default: ""
+          - name: DRY_RUN
+            default: "false"
+            allowed-values:
+              - "true"
+              - "false"
+          - name: FETCH_SORT
+            default: "desc"
+      - step:
+          name: Clear Bynder ID State (Ingest Lambda)
+          deployment: Production
+          script:
+            - apt-get update && apt-get install -y awscli jq
+            - export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+            - export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+            - export AWS_DEFAULT_REGION=${AWS_REGION:-us-east-1}
+            - export INGEST_LAMBDA=${INGEST_LAMBDA:-dam-migration-ingest-prod}
+            - echo "=========================================="
+            - echo "Clear bynderId on DynamoDB tracker records"
+            - echo "=========================================="
+            - echo "Function:$INGEST_LAMBDA"
+            - echo "Action:clear-bynderId-state"
+            - |
+              if [ -z "$DIVISION_ID" ]; then
+                echo "❌ DIVISION_ID is required"
+                exit 1
+              fi
+              if [ -z "$FOLDER_ID" ]; then
+                echo "❌ FOLDER_ID is required"
+                exit 1
+              fi
+              echo "Division ID:$DIVISION_ID"
+              echo "Folder ID:$FOLDER_ID"
+            - export PAYLOAD="{\"action\":\"clear-bynderId-state\",\"maxAssets\":$MAX_ASSETS,\"divisionId\":\"$DIVISION_ID\",\"folderId\":\"$FOLDER_ID\""
+            - |
+              if [ -n "$FETCH_OFFSET" ]; then
+                echo "Fetch Offset:$FETCH_OFFSET"
+                PAYLOAD="$PAYLOAD,\"fetchOffset\":$FETCH_OFFSET"
+              fi
+            - |
+              if [ -n "$SYNC_LAST_DAYS" ]; then
+                echo "Sync Last Days:$SYNC_LAST_DAYS"
+                PAYLOAD="$PAYLOAD,\"syncLastDays\":$SYNC_LAST_DAYS"
+              fi
+            - |
+              if [ -n "$DATE_FROM" ]; then
+                PAYLOAD="$PAYLOAD,\"dateFrom\":\"$DATE_FROM\""
+              fi
+            - |
+              if [ -n "$DATE_TO" ]; then
+                PAYLOAD="$PAYLOAD,\"dateTo\":\"$DATE_TO\""
+              fi
+            - |
+              export FETCH_SORT_VALUE=${FETCH_SORT:-desc}
+              PAYLOAD="$PAYLOAD,\"fetchSort\":\"$FETCH_SORT_VALUE\""
+            - |
+              if [ "$DRY_RUN" = "true" ]; then
+                echo "Dry run enabled — no DynamoDB writes"
+                PAYLOAD="$PAYLOAD,\"dryRun\":true"
+              fi
+            - PAYLOAD="$PAYLOAD}"
+            - echo "Payload:$PAYLOAD"
+            - |
+              STATUS_CODE=$(aws lambda invoke \
+                --function-name $INGEST_LAMBDA \
+                --invocation-type Event \
+                --payload "$PAYLOAD" \
+                --region $AWS_DEFAULT_REGION \
+                --cli-binary-format raw-in-base64-out \
+                --output text \
+                --query 'StatusCode' \
+                /dev/null)
+              echo "Lambda Status Code: $STATUS_CODE"
+              if [ "$STATUS_CODE" = "202" ]; then
+                echo "✅ clear-bynderId-state started — check CloudWatch for dam-migration-ingest-prod"
+              else
+                echo "❌ Lambda invocation failed with status code: $STATUS_CODE"
+                exit 1
+              fi
+
     nightly-migration-76:
       - step:
           name: Nightly Migration - Division 76

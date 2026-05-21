@@ -101,6 +101,26 @@ Go to **Repository Settings** → **Pipelines** → **Repository variables** and
 3. Checks DynamoDB for migration status
 4. Displays summary with CloudWatch log locations
 
+### 4. Clear Bynder ID State (incorrect `bynderId` on tracker records)
+
+**Trigger:** Manual — **Custom** → **clear-bynder-id-state**
+
+**Required variables:**
+- **DIVISION_ID** — Creative Drive division (e.g. `45`)
+- **FOLDER_ID** — Creative Drive folder (e.g. `104851`)
+
+**Optional variables:**
+- **MAX_ASSETS** — Cap CD search results (default: `10000`)
+- **DRY_RUN** — `true` to log only, no DynamoDB writes
+- **SYNC_LAST_DAYS** / **DATE_FROM** / **DATE_TO** — Limit CD search window (default: wide range to include all folder assets)
+
+**What it does:**
+1. Invokes the Ingest Lambda with `"action": "clear-bynderId-state"`
+2. Fetches asset IDs from Creative Drive for the folder + division
+3. For each ID that exists in the migration tracker table: **REMOVE** `bynderId` and set `status` to `PENDING` (so the processor can re-upload)
+
+**Example (your case):** `DIVISION_ID=45`, `FOLDER_ID=104851`, `DRY_RUN=true` first to verify count, then `DRY_RUN=false`.
+
 ### Variable Naming
 - **Bitbucket:** `$VARIABLE_NAME`
 

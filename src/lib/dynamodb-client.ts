@@ -260,3 +260,52 @@ export async function updateCreativeDriveAssetRecord(
   return true;
 }
 
+export interface ClearBynderIdOptions {
+  dryRun?: boolean;
+  /** When true, sets status to PENDING so the processor can re-upload. Default true. */
+  resetStatusToPending?: boolean;
+}
+
+/**
+ * Remove bynderId from a tracker record (optional status reset to PENDING).
+ */
+export async function clearBynderIdForAsset(
+  tableName: string,
+  creativeDriveAssetId: string,
+  options: ClearBynderIdOptions = {}
+): Promise<void> {
+  const { dryRun = false, resetStatusToPending = true } = options;
+  const now = new Date().toISOString();
+
+  if (dryRun) {
+    console.log(
+      `Dry run: would REMOVE bynderId from ${creativeDriveAssetId}` +
+        (resetStatusToPending ? ' and set status=PENDING' : '')
+    );
+    return;
+  }
+
+  const updateParts = ['REMOVE bynderId', 'SET updatedAt = :updatedAt'];
+  const expressionAttributeNames: Record<string, string> = {};
+  const expressionAttributeValues: Record<string, string> = {
+    ':updatedAt': now,
+  };
+
+  if (resetStatusToPending) {
+    updateParts.push('#status = :status');
+    expressionAttributeNames['#status'] = 'status';
+    expressionAttributeValues[':status'] = 'PENDING';
+  }
+
+  const command = new UpdateCommand({
+    TableName: tableName,
+    Key: { creativeDriveAssetId },
+    UpdateExpression: updateParts.join(', '),
+    ExpressionAttributeNames:
+      Object.keys(expressionAttributeNames).length > 0 ? expressionAttributeNames : undefined,
+    ExpressionAttributeValues: expressionAttributeValues,
+  });
+
+  await docClient.send(command);
+}
+
