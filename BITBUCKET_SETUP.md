@@ -4,11 +4,13 @@ This guide explains how to configure and use Bitbucket Pipelines for this projec
 
 ## Overview
 
-The `bitbucket-pipelines.yml` file defines three types of pipelines:
+The `bitbucket-pipelines.yml` file defines these pipelines:
 
-1. **Pull Request Validation** - Automatically runs on all PRs
-2. **CloudFormation Deployment** - Automatically runs on main branch pushes
-3. **Manual Migration Trigger** - Custom pipeline for running migrations
+1. **Pull Request Validation** — Automatically runs on all PRs
+2. **CloudFormation Deployment** — Automatically runs on main branch pushes
+3. **Manual Migration Trigger** (`run-migration`) — Custom pipeline for ingesting assets
+4. **Clear Bynder ID State** (`clear-bynder-id-state`) — Custom pipeline to reset incorrect `bynderId` on tracker records
+5. **Nightly Migration** (`nightly-migration-76`) — Scheduled-style custom pipeline for division 76
 
 ## Prerequisites
 
@@ -101,25 +103,27 @@ Go to **Repository Settings** → **Pipelines** → **Repository variables** and
 3. Checks DynamoDB for migration status
 4. Displays summary with CloudWatch log locations
 
-### 4. Clear Bynder ID State (incorrect `bynderId` on tracker records)
+### 4. Clear Bynder ID State (`clear-bynder-id-state`)
+
+**Full documentation:** [docs/clear-bynder-id-state-pipeline.md](docs/clear-bynder-id-state-pipeline.md)
 
 **Trigger:** Manual — **Custom** → **clear-bynder-id-state**
 
-**Required variables:**
-- **DIVISION_ID** — Creative Drive division (e.g. `45`)
-- **FOLDER_ID** — Creative Drive folder (e.g. `104851`)
+**Purpose:** Reset incorrect `bynderId` values on DynamoDB tracker records for a Creative Drive folder/division so assets can be re-migrated. Does not modify Bynder or Creative Drive.
 
-**Optional variables:**
-- **MAX_ASSETS** — Cap CD search results (default: `10000`)
-- **DRY_RUN** — `true` to log only, no DynamoDB writes
-- **SYNC_LAST_DAYS** / **DATE_FROM** / **DATE_TO** — Limit CD search window (default: wide range to include all folder assets)
+**Quick start:**
 
-**What it does:**
-1. Invokes the Ingest Lambda with `"action": "clear-bynderId-state"`
-2. Fetches asset IDs from Creative Drive for the folder + division
-3. For each ID that exists in the migration tracker table: **REMOVE** `bynderId` and set `status` to `PENDING` (so the processor can re-upload)
+1. **Pipelines** → **Run pipeline** → **Custom** → **clear-bynder-id-state**
+2. Set `DIVISION_ID` (e.g. `45`) and `FOLDER_ID` (e.g. `104851`) — both required
+3. Run with `DRY_RUN=true` first; check CloudWatch for `totalCleared`
+4. Run again with `DRY_RUN=false` to apply
+5. Re-run migration / let the processor handle `PENDING` records
 
-**Example (your case):** `DIVISION_ID=45`, `FOLDER_ID=104851`, `DRY_RUN=true` first to verify count, then `DRY_RUN=false`.
+**Required variables:** `DIVISION_ID`, `FOLDER_ID`
+
+**Common optional variables:** `DRY_RUN` (`true`/`false`), `MAX_ASSETS` (default `10000`)
+
+**Lambda:** `dam-migration-ingest-prod` (override with `INGEST_LAMBDA`). Invoked asynchronously — **check CloudWatch** for results, not the Bitbucket log alone.
 
 ### Variable Naming
 - **Bitbucket:** `$VARIABLE_NAME`

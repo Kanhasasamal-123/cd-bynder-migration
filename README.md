@@ -240,6 +240,16 @@ Run DAM Migration pipeline in Bitbucket
 -- specify mode (delta: migrate next n assets, full: migrate n assets)
 -- optionally specify FOLDER_NAMES / ASSET_IDS
 
+### Clear incorrect `bynderId` on tracker records
+
+Use when DynamoDB has wrong `bynderId` values for a folder/division and you need to re-migrate.
+
+1. Bitbucket: **Custom** → **`clear-bynder-id-state`**
+2. Set `DIVISION_ID` and `FOLDER_ID` (e.g. `45` and `104851`)
+3. Run with `DRY_RUN=true`, then `DRY_RUN=false`
+4. Confirm in CloudWatch / DynamoDB (`bynderId` removed, `status` = `PENDING`)
+
+See **[docs/clear-bynder-id-state-pipeline.md](docs/clear-bynder-id-state-pipeline.md)** for variables, verification, and troubleshooting.
 
 ### Trigger Ingestion (Manual)
 
