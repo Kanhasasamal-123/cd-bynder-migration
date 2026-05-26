@@ -557,7 +557,9 @@ export class BynderClient {
     const raw =
       mediaItem.originalFilename ??
       mediaItem.original_filename ??
-      mediaItem.originalFileName;
+      mediaItem.originalFileName ??
+      mediaItem.filename ??
+      mediaItem.name;
 
     return typeof raw === 'string' ? raw.trim() || null : null;
   }

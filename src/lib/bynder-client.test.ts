@@ -126,8 +126,7 @@ describe('BynderClient', () => {
               },
               {
                 id: 'right-id',
-                name: 'Right display name',
-                originalFilename: 'ST123-CC123_FRONT.tif',
+                name: 'ST123-CC123_FRONT.tif',
               },
             ],
           },
