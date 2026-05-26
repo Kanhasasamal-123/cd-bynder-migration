@@ -553,11 +553,26 @@ export class BynderClient {
     return null;
   }
 
+  private getOriginalFilenameFromMedia(mediaItem: Record<string, unknown>): string | null {
+    const raw =
+      mediaItem.originalFilename ??
+      mediaItem.original_filename ??
+      mediaItem.originalFileName;
+
+    return typeof raw === 'string' ? raw.trim() || null : null;
+  }
+
   /**
    * Find one asset by Style_Number only, then filter client-side by RLM_NRF_Color_Code and Ecom_Angle_Code
    * so we don't rely on the Bynder API filtering with multiple params.
    */
-  async findMedia(styleNumber: string, colorCode: string, angleCode?: string, onProgress?: (progress: MigrationProgress) => void): Promise<string | null> {
+  async findMedia(
+    styleNumber: string,
+    colorCode: string,
+    angleCode?: string,
+    onProgress?: (progress: MigrationProgress) => void,
+    options: { originalFilename?: string } = {}
+  ): Promise<string | null> {
     const accessToken = await this.getAccessToken();
     const authHeader = { Authorization: `Bearer ${accessToken}` };
     await this.ensureMetapropertiesLoaded(authHeader);
@@ -591,6 +606,38 @@ export class BynderClient {
         candidates: candidates,
       },
     });
+
+    const normalizedOriginalFilename = (options.originalFilename || '').trim();
+    if (normalizedOriginalFilename) {
+      onProgress?.({
+        stage: 'additional_file',
+        message: `Matching against candidates using originalFilename="${normalizedOriginalFilename}"`,
+        details: { originalFilename: normalizedOriginalFilename },
+      });
+
+      for (const item of candidates) {
+        const itemOriginalFilename = this.getOriginalFilenameFromMedia(item);
+        const filenameMatch = itemOriginalFilename === normalizedOriginalFilename;
+        onProgress?.({
+          stage: 'additional_file',
+          message: `Candidate "${(item as { name?: string }).name}": originalFilename="${itemOriginalFilename}" filenameMatch=${filenameMatch}`,
+          details: { id: (item as { id?: string }).id, itemOriginalFilename, filenameMatch },
+        });
+        if (filenameMatch) {
+          const id = (item as { id?: string }).id;
+          onProgress?.({
+            stage: 'additional_file',
+            message: `Found matching asset: `,
+            details: {
+              id: id,
+            },
+          });
+          return id || null;
+        }
+      }
+
+      return null;
+    }
 
     const normalizedColor = (colorCode || '').trim();
     const normalizedAngle = (angleCode || '').trim();

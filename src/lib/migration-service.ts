@@ -64,19 +64,29 @@ export class MigrationService {
     const filenameMeta = this.bynderClient.extractMetadataFromFilename(asset.originalFilename);
     const { styleNumber, colorCode, angleCode } = filenameMeta;
 
-    // When no existingBynderId, check if an asset in Bynder matches Style_Number_RLM_Code and angle code
+    // When no existingBynderId, check if an asset in Bynder matches the current asset.
     // If so, we will add this file as an additional file to that existing asset (finalize additional file API)
     let targetBynderId: string | undefined = asset.existingBynderId;
     let addAsAdditionalFile = false;
-    if (!targetBynderId && styleNumber && colorCode && angleCode) {
-      const matchingMediaId = await this.bynderClient.findMedia(styleNumber, colorCode, angleCode, onProgress);
+    const shouldMatchByOriginalFilename = Boolean(asset.requiresExistingAsset);
+    const hasEnoughMatchData = shouldMatchByOriginalFilename
+      ? Boolean(styleNumber && asset.originalFilename)
+      : Boolean(styleNumber && colorCode && angleCode);
+    if (!targetBynderId && hasEnoughMatchData) {
+      const matchingMediaId = shouldMatchByOriginalFilename
+        ? await this.bynderClient.findMedia(styleNumber, colorCode, angleCode, onProgress, {
+            originalFilename: asset.originalFilename,
+          })
+        : await this.bynderClient.findMedia(styleNumber, colorCode, angleCode, onProgress);
       if (matchingMediaId) {
         targetBynderId = matchingMediaId;
         addAsAdditionalFile = true;
         onProgress?.({
           stage: 'match',
-          message: `Found existing Bynder asset ${matchingMediaId} (Style_Number_RLM_Code + angle); will add as additional file`,
-          details: { styleNumber, colorCode, angleCode, bynderId: matchingMediaId },
+          message: shouldMatchByOriginalFilename
+            ? `Found existing Bynder asset ${matchingMediaId} (Style_Number + original filename); will add as additional file`
+            : `Found existing Bynder asset ${matchingMediaId} (Style_Number_RLM_Code + angle); will add as additional file`,
+          details: { styleNumber, colorCode, angleCode, originalFilename: asset.originalFilename, bynderId: matchingMediaId },
         });
       }
     }

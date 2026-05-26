@@ -1,9 +1,16 @@
 import { BynderClient } from './bynder-client';
+import axios from 'axios';
+
+jest.mock('axios');
+
+const mockedAxios = axios as jest.Mocked<typeof axios>;
 
 describe('BynderClient', () => {
   let client: BynderClient;
 
   beforeEach(() => {
+    jest.resetAllMocks();
+
     // Create client with mock credentials (won't make real API calls in these tests)
     client = new BynderClient({
       clientId: 'test-client-id',
@@ -89,6 +96,92 @@ describe('BynderClient', () => {
       expect(result.styleNumber).toBe('STYLE');
       expect(result.colorCode).toBe('');
       expect(result.angleCode).toBe('');
+    });
+  });
+
+  describe('findMedia', () => {
+    it('selects candidates by originalFilename when provided', async () => {
+      mockedAxios.post.mockResolvedValueOnce({
+        data: { access_token: 'test-token', token_type: 'bearer', expires_in: 3600 },
+      });
+      mockedAxios.get
+        .mockResolvedValueOnce({
+          data: {
+            'property.style_number': { id: 'STYLE001', name: 'Style_Number' },
+            'property.color_code': { id: 'COLOR001', name: 'RLM_NRF_Color_Code' },
+            'property.angle_code': { id: 'ANGLE001', name: 'Ecom_Angle_Code' },
+          },
+        })
+        .mockResolvedValueOnce({
+          data: {
+            media: [
+              {
+                id: 'wrong-id',
+                name: 'Wrong display name',
+                originalFilename: 'ST123-CC123_SIDE.tif',
+                metaproperty: {
+                  COLOR001: 'CC123',
+                  ANGLE001: 'FRONT',
+                },
+              },
+              {
+                id: 'right-id',
+                name: 'Right display name',
+                originalFilename: 'ST123-CC123_FRONT.tif',
+              },
+            ],
+          },
+        });
+
+      const result = await client.findMedia(
+        'ST123',
+        'CC123',
+        'FRONT',
+        jest.fn(),
+        { originalFilename: 'ST123-CC123_FRONT.tif' }
+      );
+
+      expect(result).toBe('right-id');
+      expect(mockedAxios.get).toHaveBeenLastCalledWith(
+        'https://test.bynder.com/api/v4/media/',
+        expect.objectContaining({
+          params: {
+            property_Style_Number: 'ST123',
+            limit: 200,
+          },
+        })
+      );
+    });
+
+    it('falls back to color and angle matching when originalFilename is not provided', async () => {
+      mockedAxios.post.mockResolvedValueOnce({
+        data: { access_token: 'test-token', token_type: 'bearer', expires_in: 3600 },
+      });
+      mockedAxios.get
+        .mockResolvedValueOnce({
+          data: {
+            'property.style_number': { id: 'STYLE001', name: 'Style_Number' },
+            'property.color_code': { id: 'COLOR001', name: 'RLM_NRF_Color_Code' },
+            'property.angle_code': { id: 'ANGLE001', name: 'Ecom_Angle_Code' },
+          },
+        })
+        .mockResolvedValueOnce({
+          data: {
+            media: [
+              {
+                id: 'matched-id',
+                metaproperty: {
+                  COLOR001: '123',
+                  ANGLE001: 'FRONT',
+                },
+              },
+            ],
+          },
+        });
+
+      const result = await client.findMedia('ST123', '0123', 'FRONT', jest.fn());
+
+      expect(result).toBe('matched-id');
     });
   });
 });

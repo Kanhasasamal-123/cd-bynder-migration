@@ -115,6 +115,35 @@ describe('MigrationService', () => {
     );
   });
 
+  it('matches white-background additional files by original filename', async () => {
+    const findMedia = jest.fn().mockResolvedValue('matched-bynder-id');
+    const { service, bynderClient } = createService({ findMedia });
+    const whiteBackgroundAsset: MigrationAsset = {
+      ...baseAsset,
+      originalFilename: 'ST123-CC123_FRONT.tif',
+      requiresExistingAsset: true,
+    };
+
+    const result = await service.migrateAsset(whiteBackgroundAsset, {
+      onProgress: jest.fn(),
+    });
+
+    expect(findMedia).toHaveBeenCalledWith(
+      'ST123',
+      'CC123',
+      'FRONT',
+      expect.any(Function),
+      { originalFilename: 'ST123-CC123_FRONT.tif' }
+    );
+    expect(bynderClient.uploadFile).toHaveBeenCalledWith(
+      expect.any(Buffer),
+      whiteBackgroundAsset.originalFilename,
+      {},
+      expect.objectContaining({ mediaId: 'matched-bynder-id', addAsAdditionalFile: true })
+    );
+    expect(result.bynderId).toBe('bynder-123');
+  });
+
   it('uses filename-derived codes for matching, not Creative Drive metadata', async () => {
     const findMedia = jest.fn().mockResolvedValue(null);
     const extractMetadataFromFilename = jest.fn().mockReturnValue({
