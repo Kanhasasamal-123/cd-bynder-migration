@@ -138,6 +138,14 @@ async function processAsset(creativeDriveAssetId: string): Promise<void> {
       return;
     }
 
+    if (result.skipped) {
+      await updateAssetStatus(creativeDriveAssetId, 'UPLOADED', { bynderId: result.bynderId });
+      console.log(
+        `Asset ${creativeDriveAssetId} skipped (already migrated) -> Bynder ID: ${result.bynderId}`
+      );
+      return;
+    }
+
     await updateAssetStatus(creativeDriveAssetId, 'UPLOADED', { bynderId: result.bynderId });
 
     console.log(

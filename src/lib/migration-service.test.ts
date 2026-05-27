@@ -115,6 +115,27 @@ describe('MigrationService', () => {
     );
   });
 
+  it('skips re-upload when white-background asset already has bynderId (no new version on parent)', async () => {
+    const findMedia = jest.fn();
+    const downloadAsset = jest.fn();
+    const uploadFile = jest.fn();
+    const { service } = createService({ findMedia, downloadAsset, uploadFile });
+
+    const whiteBackgroundAsset: MigrationAsset = {
+      ...baseAsset,
+      existingBynderId: 'parent-grey-bynder-id',
+      requiresExistingAsset: true,
+    };
+
+    const result = await service.migrateAsset(whiteBackgroundAsset, { onProgress: jest.fn() });
+
+    expect(result.skipped).toBe(true);
+    expect(result.bynderId).toBe('parent-grey-bynder-id');
+    expect(findMedia).not.toHaveBeenCalled();
+    expect(downloadAsset).not.toHaveBeenCalled();
+    expect(uploadFile).not.toHaveBeenCalled();
+  });
+
   it('matches white-background additional files by original filename', async () => {
     const findMedia = jest.fn().mockResolvedValue('matched-bynder-id');
     const { service, bynderClient } = createService({ findMedia });

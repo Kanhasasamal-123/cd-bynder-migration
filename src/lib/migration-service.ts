@@ -13,6 +13,8 @@ export interface MigrationResult {
   filename: string;
   aborted?: boolean;
   abortReason?: string;
+  /** True when migration was skipped because the asset was already attached in Bynder. */
+  skipped?: boolean;
 }
 
 export interface MigrationProgress {
@@ -89,6 +91,26 @@ export class MigrationService {
           details: { styleNumber, colorCode, angleCode, originalFilename: asset.originalFilename, bynderId: matchingMediaId },
         });
       }
+    }
+
+    // White-background assets store the parent grey asset's Bynder ID after the first run.
+    // Re-processing must not call save-to-existing-asset (new version) on that parent.
+    if (asset.requiresExistingAsset && asset.existingBynderId) {
+      onProgress?.({
+        stage: 'skip',
+        message: `White-background asset already migrated to Bynder asset ${asset.existingBynderId}; skipping upload`,
+        details: {
+          creativeDriveAssetId: asset.creativeDriveAssetId,
+          filename: asset.originalFilename,
+          bynderId: asset.existingBynderId,
+        },
+      });
+      return {
+        creativeDriveAssetId: asset.creativeDriveAssetId,
+        bynderId: asset.existingBynderId,
+        filename: asset.originalFilename,
+        skipped: true,
+      };
     }
 
     // If this asset requires an existing Bynder asset (e.g. white BG that must attach
