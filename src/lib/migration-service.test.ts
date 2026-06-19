@@ -16,6 +16,7 @@ describe('MigrationService', () => {
     uploadFile?: jest.Mock;
     downloadAsset?: jest.Mock;
     findMedia?: jest.Mock;
+    getAdditionalFileCount?: jest.Mock;
   }) {
     const creativeDriveClient = {
       downloadAsset: overrides?.downloadAsset || jest.fn().mockResolvedValue(Buffer.from('file')),
@@ -24,6 +25,7 @@ describe('MigrationService', () => {
     const bynderClient = {
       uploadFile: overrides?.uploadFile || jest.fn().mockResolvedValue('bynder-123'),
       findMedia: overrides?.findMedia || jest.fn().mockResolvedValue(null),
+      getAdditionalFileCount: overrides?.getAdditionalFileCount || jest.fn().mockResolvedValue(0),
       extractMetadataFromFilename: jest
         .fn()
         .mockReturnValue({ styleNumber: 'ST123', colorCode: 'CC123', angleCode: 'FRONT' }),
@@ -115,11 +117,12 @@ describe('MigrationService', () => {
     );
   });
 
-  it('skips re-upload when white-background asset already has bynderId (no new version on parent)', async () => {
+  it('skips re-upload when target Bynder asset already has an additional file', async () => {
     const findMedia = jest.fn();
     const downloadAsset = jest.fn();
     const uploadFile = jest.fn();
-    const { service } = createService({ findMedia, downloadAsset, uploadFile });
+    const getAdditionalFileCount = jest.fn().mockResolvedValue(2);
+    const { service } = createService({ findMedia, downloadAsset, uploadFile, getAdditionalFileCount });
 
     const whiteBackgroundAsset: MigrationAsset = {
       ...baseAsset,
@@ -131,9 +134,36 @@ describe('MigrationService', () => {
 
     expect(result.skipped).toBe(true);
     expect(result.bynderId).toBe('parent-grey-bynder-id');
+    expect(getAdditionalFileCount).toHaveBeenCalledWith('parent-grey-bynder-id');
     expect(findMedia).not.toHaveBeenCalled();
     expect(downloadAsset).not.toHaveBeenCalled();
     expect(uploadFile).not.toHaveBeenCalled();
+  });
+
+  it('uploads as additional file when white-background target has no additional files yet', async () => {
+    const getAdditionalFileCount = jest.fn().mockResolvedValue(0);
+    const uploadFile = jest.fn().mockResolvedValue('parent-grey-bynder-id');
+    const { service, bynderClient } = createService({ getAdditionalFileCount, uploadFile });
+
+    const whiteBackgroundAsset: MigrationAsset = {
+      ...baseAsset,
+      existingBynderId: 'parent-grey-bynder-id',
+      requiresExistingAsset: true,
+    };
+
+    const result = await service.migrateAsset(whiteBackgroundAsset, { onProgress: jest.fn() });
+
+    expect(result.skipped).toBeUndefined();
+    expect(getAdditionalFileCount).toHaveBeenCalledWith('parent-grey-bynder-id');
+    expect(bynderClient.uploadFile).toHaveBeenCalledWith(
+      expect.any(Buffer),
+      whiteBackgroundAsset.originalFilename,
+      {},
+      expect.objectContaining({
+        mediaId: 'parent-grey-bynder-id',
+        addAsAdditionalFile: true,
+      })
+    );
   });
 
   it('matches white-background additional files by original filename', async () => {
@@ -175,6 +205,7 @@ describe('MigrationService', () => {
     const bynderClient = {
       uploadFile: jest.fn().mockResolvedValue('bynder-123'),
       findMedia,
+      getAdditionalFileCount: jest.fn().mockResolvedValue(0),
       extractMetadataFromFilename,
     };
     const service = new MigrationService(
@@ -206,6 +237,7 @@ describe('MigrationService', () => {
     const bynderClient = {
       uploadFile: jest.fn().mockResolvedValue('bynder-123'),
       findMedia,
+      getAdditionalFileCount: jest.fn().mockResolvedValue(0),
       extractMetadataFromFilename,
     };
     const service = new MigrationService(

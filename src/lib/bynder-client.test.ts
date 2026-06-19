@@ -183,4 +183,40 @@ describe('BynderClient', () => {
       expect(result).toBe('matched-id');
     });
   });
+
+  describe('getAdditionalFileCount', () => {
+    it('counts mediaItems with type additional', async () => {
+      mockedAxios.post.mockResolvedValueOnce({
+        data: { access_token: 'token', token_type: 'Bearer', expires_in: 3600 },
+      });
+      mockedAxios.get.mockResolvedValueOnce({
+        data: {
+          mediaItems: [
+            { type: 'original', fileName: 'asset.tif' },
+            { type: 'additional', fileName: 'asset.tif' },
+            { type: 'web', fileName: 'preview.jpg' },
+          ],
+        },
+      });
+
+      const count = await client.getAdditionalFileCount('media-123');
+
+      expect(count).toBe(1);
+      expect(mockedAxios.get).toHaveBeenCalledWith(
+        'https://test.bynder.com/api/v4/media/media-123/',
+        expect.objectContaining({ params: { versions: true } })
+      );
+    });
+
+    it('returns 0 when mediaItems is missing', async () => {
+      mockedAxios.post.mockResolvedValueOnce({
+        data: { access_token: 'token', token_type: 'Bearer', expires_in: 3600 },
+      });
+      mockedAxios.get.mockResolvedValueOnce({ data: {} });
+
+      const count = await client.getAdditionalFileCount('media-123');
+
+      expect(count).toBe(0);
+    });
+  });
 });

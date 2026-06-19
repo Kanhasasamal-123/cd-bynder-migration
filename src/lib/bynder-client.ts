@@ -684,6 +684,26 @@ export class BynderClient {
     return null;
   }
 
+  /**
+   * Count additional files on a Bynder asset (GET /api/v4/media/{id}/?versions=true).
+   */
+  async getAdditionalFileCount(mediaId: string): Promise<number> {
+    const accessToken = await this.getAccessToken();
+    const authHeader = { Authorization: `Bearer ${accessToken}` };
+
+    const response = await axios.get<{ mediaItems?: Array<{ type?: string }> }>(
+      `${this.credentials.apiBaseUrl}/api/v4/media/${mediaId}/`,
+      { headers: authHeader, params: { versions: true } }
+    );
+
+    const mediaItems = response.data?.mediaItems;
+    if (!Array.isArray(mediaItems)) {
+      return 0;
+    }
+
+    return mediaItems.filter((item) => item.type === 'additional').length;
+  }
+
   async updateMediaMetadata(mediaId: string, assetMetadata: Record<string, string>): Promise<void> {
     const accessToken = await this.getAccessToken();
     const authHeader = { Authorization: `Bearer ${accessToken}` };

@@ -93,24 +93,31 @@ export class MigrationService {
       }
     }
 
-    // White-background assets store the parent grey asset's Bynder ID after the first run.
-    // Re-processing must not call save-to-existing-asset (new version) on that parent.
-    if (asset.requiresExistingAsset && asset.existingBynderId) {
-      onProgress?.({
-        stage: 'skip',
-        message: `White-background asset already migrated to Bynder asset ${asset.existingBynderId}; skipping upload`,
-        details: {
+    // Each Bynder asset should have at most one additional file. Skip re-upload when the
+    // target already has one (avoids duplicate additional files after clear-bynderId re-runs).
+    if (targetBynderId && (addAsAdditionalFile || asset.requiresExistingAsset)) {
+      const additionalFileCount = await this.bynderClient.getAdditionalFileCount(targetBynderId);
+      if (additionalFileCount >= 1) {
+        onProgress?.({
+          stage: 'skip',
+          message: `Bynder asset ${targetBynderId} already has ${additionalFileCount} additional file(s); skipping upload`,
+          details: {
+            creativeDriveAssetId: asset.creativeDriveAssetId,
+            filename: asset.originalFilename,
+            bynderId: targetBynderId,
+            additionalFileCount,
+          },
+        });
+        return {
           creativeDriveAssetId: asset.creativeDriveAssetId,
+          bynderId: targetBynderId,
           filename: asset.originalFilename,
-          bynderId: asset.existingBynderId,
-        },
-      });
-      return {
-        creativeDriveAssetId: asset.creativeDriveAssetId,
-        bynderId: asset.existingBynderId,
-        filename: asset.originalFilename,
-        skipped: true,
-      };
+          skipped: true,
+        };
+      }
+      if (asset.requiresExistingAsset) {
+        addAsAdditionalFile = true;
+      }
     }
 
     // If this asset requires an existing Bynder asset (e.g. white BG that must attach
