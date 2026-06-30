@@ -1,0 +1,5 @@
+# One Creative Drive asset ID per line.
+# Copy to retry-asset-ids.txt, paste your IDs, commit, then run the retry-failed-assets pipeline with:
+#   ASSET_IDS_FILE=data/retry-asset-ids.txt
+1005992
+1005993

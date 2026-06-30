@@ -312,3 +312,59 @@ export async function clearBynderIdForAsset(
   await docClient.send(command);
 }
 
+export interface ResetAssetToPendingOptions {
+  dryRun?: boolean;
+  /** Fresh download URL from Creative Drive (time-limited). */
+  publicUrl?: string;
+  sourceUrl?: string;
+}
+
+/**
+ * Set tracker status to PENDING so the processor Lambda can retry migration.
+ * Optionally refresh publicUrl/sourceUrl when the stored URLs may have expired.
+ */
+export async function resetAssetToPending(
+  tableName: string,
+  creativeDriveAssetId: string,
+  options: ResetAssetToPendingOptions = {}
+): Promise<void> {
+  const { dryRun = false, publicUrl, sourceUrl } = options;
+  const now = new Date().toISOString();
+
+  if (dryRun) {
+    console.log(
+      `Dry run: would set status=PENDING for ${creativeDriveAssetId}` +
+        (publicUrl ? ` with refreshed publicUrl` : '')
+    );
+    return;
+  }
+
+  const setParts = ['#status = :status', 'updatedAt = :updatedAt'];
+  const expressionAttributeNames: Record<string, string> = {
+    '#status': 'status',
+  };
+  const expressionAttributeValues: Record<string, string> = {
+    ':status': 'PENDING',
+    ':updatedAt': now,
+  };
+
+  if (publicUrl !== undefined) {
+    setParts.push('publicUrl = :publicUrl');
+    expressionAttributeValues[':publicUrl'] = publicUrl;
+  }
+  if (sourceUrl !== undefined) {
+    setParts.push('sourceUrl = :sourceUrl');
+    expressionAttributeValues[':sourceUrl'] = sourceUrl;
+  }
+
+  const command = new UpdateCommand({
+    TableName: tableName,
+    Key: { creativeDriveAssetId },
+    UpdateExpression: `SET ${setParts.join(', ')} REMOVE errorMessage`,
+    ExpressionAttributeNames: expressionAttributeNames,
+    ExpressionAttributeValues: expressionAttributeValues,
+  });
+
+  await docClient.send(command);
+}
+

@@ -10,7 +10,8 @@ The `bitbucket-pipelines.yml` file defines these pipelines:
 2. **CloudFormation Deployment** — Automatically runs on main branch pushes
 3. **Manual Migration Trigger** (`run-migration`) — Custom pipeline for ingesting assets
 4. **Clear Bynder ID State** (`clear-bynder-id-state`) — Custom pipeline to reset incorrect `bynderId` on tracker records
-5. **Nightly Migration** (`nightly-migration-76`) — Scheduled-style custom pipeline for division 76
+5. **Retry Failed Assets** (`retry-failed-assets`) — Reset `FAILED` tracker records to `PENDING` for a list of asset IDs
+6. **Nightly Migration** (`nightly-migration-76`) — Scheduled-style custom pipeline for division 76
 
 ## Prerequisites
 
@@ -124,6 +125,24 @@ Go to **Repository Settings** → **Pipelines** → **Repository variables** and
 **Common optional variables:** `DRY_RUN` (`true`/`false`), `MAX_ASSETS` (default `10000`)
 
 **Lambda:** `dam-migration-ingest-prod` (override with `INGEST_LAMBDA`). Invoked asynchronously — **check CloudWatch** for results, not the Bitbucket log alone.
+
+### 5. Retry Failed Assets (`retry-failed-assets`)
+
+**Full documentation:** [docs/retry-failed-assets-pipeline.md](docs/retry-failed-assets-pipeline.md)
+
+**Trigger:** Manual — **Custom** → **retry-failed-assets**
+
+**Purpose:** Reset `FAILED` DynamoDB tracker records to `PENDING` for a specific list of asset IDs, **refreshing expired Creative Drive download URLs** first, so the Processor Lambda can retry them.
+
+**Quick start:**
+
+1. Put IDs in `data/retry-asset-ids.txt` (one per line) or use comma-separated `ASSET_ID`
+2. **Pipelines** → **Run pipeline** → **Custom** → **retry-failed-assets**
+3. Set `ASSET_IDS_FILE=data/retry-asset-ids.txt` (or `ASSET_ID`)
+4. Run with `DRY_RUN=true` first; check CloudWatch for `totalReset`
+5. Run again with `DRY_RUN=false`
+
+**Required variables:** `ASSET_ID` or `ASSET_IDS_FILE` (one of)
 
 ### Variable Naming
 - **Bitbucket:** `$VARIABLE_NAME`

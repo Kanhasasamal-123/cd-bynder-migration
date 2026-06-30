@@ -489,4 +489,143 @@ describe('CreativeDriveIngestLambda', () => {
       .filter((cmd) => cmd.UpdateExpression?.includes('REMOVE bynderId'));
     expect(updateCalls[0].Key).toEqual({ creativeDriveAssetId: '4206785' });
   });
+
+  it('retry-failed-assets resets FAILED records to PENDING with refreshed URLs', async () => {
+    mockDynamoSend.mockImplementation((cmd) => {
+      if (cmd.RequestItems) {
+        return Promise.resolve({
+          Responses: {
+            'test-table': [
+              { creativeDriveAssetId: '1001', status: 'FAILED' },
+              { creativeDriveAssetId: '1002', status: 'UPLOADED' },
+              { creativeDriveAssetId: '1003', status: 'FAILED' },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    mockAxiosGet.mockImplementation((url: string) => {
+      if (url.endsWith('/assets/1001')) {
+        return Promise.resolve({
+          data: {
+            data: {
+              attributes: {
+                id: '1001',
+                original_filename: 'a.tif',
+                url: 'https://cdn.example.com',
+                path: '/assets',
+                filename: 'a.tif',
+                meta: { image_origin: 'https://cdn.example.com/fresh/1001.tif' },
+              },
+            },
+          },
+        });
+      }
+      if (url.endsWith('/assets/1001/metadatas')) {
+        return Promise.resolve({ data: { data: [] } });
+      }
+      if (url.endsWith('/assets/1003')) {
+        return Promise.resolve({
+          data: {
+            data: {
+              attributes: {
+                id: '1003',
+                original_filename: 'c.tif',
+                meta: { image_origin: 'https://cdn.example.com/fresh/1003.tif' },
+              },
+            },
+          },
+        });
+      }
+      if (url.endsWith('/assets/1003/metadatas')) {
+        return Promise.resolve({ data: { data: [] } });
+      }
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+
+    const result = await handler(
+      {
+        action: 'retry-failed-assets',
+        assetIds: ['1001', '1002', '1003', '9999'],
+      },
+      {} as any,
+      {} as any
+    );
+
+    expect(result.statusCode).toBe(200);
+    const body = JSON.parse(result.body);
+    expect(body.action).toBe('retry-failed-assets');
+    expect(body.totalReset).toBe(2);
+    expect(body.totalSkippedNotFailed).toBe(1);
+    expect(body.totalSkippedNotInDynamo).toBe(1);
+
+    const updateCalls = mockDynamoSend.mock.calls
+      .map(([cmd]) => cmd)
+      .filter((cmd) => cmd.UpdateExpression?.includes('REMOVE errorMessage'));
+    expect(updateCalls).toHaveLength(2);
+    expect(updateCalls[0].Key).toEqual({ creativeDriveAssetId: '1001' });
+    expect(updateCalls[0].ExpressionAttributeValues[':status']).toBe('PENDING');
+    expect(updateCalls[0].ExpressionAttributeValues[':publicUrl']).toBe(
+      'https://cdn.example.com/fresh/1001.tif'
+    );
+  });
+
+  it('retry-failed-assets dry-run does not write to DynamoDB', async () => {
+    mockDynamoSend.mockImplementation((cmd) => {
+      if (cmd.RequestItems) {
+        return Promise.resolve({
+          Responses: {
+            'test-table': [{ creativeDriveAssetId: '1001', status: 'FAILED' }],
+          },
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    mockAxiosGet.mockImplementation((url: string) => {
+      if (url.endsWith('/assets/1001')) {
+        return Promise.resolve({
+          data: {
+            data: {
+              attributes: {
+                id: '1001',
+                meta: { image_origin: 'https://cdn.example.com/fresh/1001.tif' },
+              },
+            },
+          },
+        });
+      }
+      if (url.endsWith('/assets/1001/metadatas')) {
+        return Promise.resolve({ data: { data: [] } });
+      }
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+
+    const result = await handler(
+      {
+        action: 'retry-failed-assets',
+        assetIds: ['1001'],
+        dryRun: true,
+      },
+      {} as any,
+      {} as any
+    );
+
+    const body = JSON.parse(result.body);
+    expect(body.totalReset).toBe(1);
+    expect(body.dryRun).toBe(true);
+
+    const updateCalls = mockDynamoSend.mock.calls.filter(
+      ([cmd]) => cmd.UpdateExpression?.includes('REMOVE errorMessage')
+    );
+    expect(updateCalls).toHaveLength(0);
+  });
+
+  it('retry-failed-assets requires assetIds', async () => {
+    await expect(
+      handler({ action: 'retry-failed-assets' }, {} as any, {} as any)
+    ).rejects.toThrow('assetIds must be provided');
+  });
 });

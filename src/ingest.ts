@@ -6,6 +6,9 @@ import {
   updateCreativeDriveAssetRecord,
   batchCheckAssetStatus,
   clearBynderIdForAsset,
+  resetAssetToPending,
+  buildSourceUrl,
+  metadataArrayToMap,
 } from './lib/dynamodb-client';
 
 const secretsClient = new SecretsManagerClient({});
@@ -39,14 +42,14 @@ interface Asset {
   };
 }
 
-type IngestAction = 'ingest' | 'clear-bynderId-state';
+type IngestAction = 'ingest' | 'clear-bynderId-state' | 'retry-failed-assets';
 
 interface IngestEvent {
   /** Default: ingest. Use clear-bynderId-state to REMOVE bynderId from tracker records. */
   action?: IngestAction;
   maxAssets?: number;
   fetchOffset?: number;
-  divisionId: string;
+  divisionId?: string;
   folderId?: string;
   assetId?: string;
   assetIds?: string[];
@@ -56,6 +59,8 @@ interface IngestEvent {
   dateTo?: string;
   dryRun?: boolean;
   fetchSort?: string;
+  /** retry-failed-assets: only reset records with status FAILED (default true). */
+  onlyFailed?: boolean;
 }
 
 interface IngestionFailure {
@@ -98,6 +103,146 @@ function mapCreativeDriveAssetToFetched(
     folder_id: String(attributes.folder_id ?? attributes.ts_folder_id ?? '').trim(),
     division_id: String(attributes.division_id ?? fallbackDivisionId).trim(),
     publicUrl: attributes.meta?.image_origin || '',
+  };
+}
+
+function parseEventAssetIds(event: IngestEvent): string[] {
+  if (event.assetIds && event.assetIds.length > 0) {
+    return event.assetIds.map((id) => id.trim()).filter((id) => id.length > 0);
+  }
+  if (event.assetId) {
+    return event.assetId
+      .split(',')
+      .map((id) => id.trim())
+      .filter((id) => id.length > 0);
+  }
+  return [];
+}
+
+async function handleRetryFailedAssets(event: IngestEvent): Promise<{
+  statusCode: number;
+  body: string;
+}> {
+  const assetIds = parseEventAssetIds(event);
+  if (assetIds.length === 0) {
+    throw new Error('assetIds must be provided (assetIds array or comma-separated assetId)');
+  }
+
+  const isDryRun = event.dryRun === true;
+  const onlyFailed = event.onlyFailed !== false;
+
+  console.log('Starting retry-failed-assets', {
+    totalAssetIds: assetIds.length,
+    onlyFailed,
+    dryRun: isDryRun,
+  });
+
+  const credentials = await getCreativeDriveCredentials();
+  const client = new CreativeDriveClient({ apiKey: credentials.apiKey });
+  const existingStatus = await batchCheckAssetStatus(getTableName(), assetIds);
+
+  let totalReset = 0;
+  let totalSkippedNotFailed = 0;
+  let totalSkippedNotInDynamo = 0;
+  const failures: IngestionFailure[] = [];
+
+  const idsToProcess = assetIds.filter((id) => {
+    const status = existingStatus.get(id);
+    if (!status?.exists) {
+      totalSkippedNotInDynamo++;
+      console.warn(`Skipping ${id}: not found in DynamoDB`);
+      return false;
+    }
+    if (onlyFailed && status.status !== 'FAILED') {
+      totalSkippedNotFailed++;
+      console.log(`Skipping ${id}: status is ${status.status ?? 'unknown'} (onlyFailed=true)`);
+      return false;
+    }
+    return true;
+  });
+
+  for (let i = 0; i < idsToProcess.length; i += METADATA_BATCH_SIZE) {
+    const batch = idsToProcess.slice(i, i + METADATA_BATCH_SIZE);
+    const batchNum = Math.floor(i / METADATA_BATCH_SIZE) + 1;
+    const totalBatches = Math.ceil(idsToProcess.length / METADATA_BATCH_SIZE);
+    console.log(
+      `Refreshing URLs and resetting batch ${batchNum}/${totalBatches} (${batch.length} asset IDs)...`
+    );
+
+    await Promise.all(
+      batch.map(async (id) => {
+        const status = existingStatus.get(id);
+
+        try {
+          const [cdAsset, cdMetadata] = await Promise.all([
+            client.getAssetById(id),
+            client.getAssetMetadata(id),
+          ]);
+
+          const attrs = cdAsset.attributes;
+          const publicUrl = attrs.meta?.image_origin ?? '';
+          if (!publicUrl) {
+            throw new Error(`No image_origin returned from Creative Drive for asset ${id}`);
+          }
+
+          const metadataMap = metadataArrayToMap(cdMetadata);
+          const sourceUrl = buildSourceUrl({
+            url: attrs.url,
+            path: attrs.path,
+            filename: attrs.filename ?? attrs.original_filename,
+            metadata: metadataMap,
+            fallback: publicUrl,
+          });
+
+          await resetAssetToPending(getTableName(), id, {
+            dryRun: isDryRun,
+            publicUrl,
+            sourceUrl,
+          });
+          totalReset++;
+          console.log(
+            `${isDryRun ? 'Would reset' : 'Reset'} ${id} to PENDING with refreshed URL (was ${status?.status ?? 'unknown'})`
+          );
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+          failures.push({
+            assetId: id,
+            error: errorMsg,
+            stage: 'fetch_metadata',
+          });
+        }
+      })
+    );
+  }
+
+  const resultBody = {
+    message:
+      failures.length === 0
+        ? 'retry-failed-assets completed successfully'
+        : `retry-failed-assets completed with ${failures.length} failure(s)`,
+    action: 'retry-failed-assets' as const,
+    totalRequested: assetIds.length,
+    totalReset,
+    totalSkippedNotFailed,
+    totalSkippedNotInDynamo,
+    totalFailures: failures.length,
+    onlyFailed,
+    dryRun: isDryRun,
+    failures:
+      failures.length > 0
+        ? failures.map((f) => ({
+            stage: f.stage,
+            error: f.error,
+            assetId: f.assetId,
+          }))
+        : undefined,
+  };
+
+  console.log('retry-failed-assets completed', resultBody);
+
+  return {
+    statusCode: 200,
+    body: JSON.stringify(resultBody),
   };
 }
 
@@ -468,6 +613,9 @@ export const handler: Handler = async (event: IngestEvent) => {
     if (action === 'clear-bynderId-state') {
       return await handleClearBynderIdState(event);
     }
+    if (action === 'retry-failed-assets') {
+      return await handleRetryFailedAssets(event);
+    }
 
     const credentials = await getCreativeDriveCredentials();
     const client = new CreativeDriveClient({
@@ -479,14 +627,8 @@ export const handler: Handler = async (event: IngestEvent) => {
     const fetchOffset = event.fetchOffset || 0;
     
     // Support both assetId (single or comma-separated) and assetIds (array)
-    // Parse comma-separated asset IDs from assetId if provided
-    let assetIds: string[] | undefined;
-    if (event.assetIds && event.assetIds.length > 0) {
-      assetIds = event.assetIds.map(id => id.trim()).filter(id => id.length > 0);
-    } else if (event.assetId) {
-      // Parse comma-separated string
-      assetIds = event.assetId.split(',').map(id => id.trim()).filter(id => id.length > 0);
-    }
+    const assetIds = parseEventAssetIds(event);
+    const assetIdsOrUndefined = assetIds.length > 0 ? assetIds : undefined;
     
     const divisionId = event.divisionId?.trim();
     const folderId = event.folderId?.trim() || '';
@@ -541,8 +683,8 @@ export const handler: Handler = async (event: IngestEvent) => {
 
     console.log(`Migration mode: ${mode}${isDryRun ? ' (dry-run)' : ''}`);
     
-    if (assetIds && assetIds.length > 0) {
-      console.log(`Searching for ${assetIds.length} asset ID(s): ${assetIds.join(', ')}`);
+    if (assetIdsOrUndefined && assetIdsOrUndefined.length > 0) {
+      console.log(`Searching for ${assetIdsOrUndefined.length} asset ID(s): ${assetIdsOrUndefined.join(', ')}`);
     } else {
       console.log(`Max assets to ingest: ${maxAssets === Infinity ? 'unlimited' : maxAssets}`);
       if (fetchOffset > 0) {
@@ -577,7 +719,7 @@ export const handler: Handler = async (event: IngestEvent) => {
       divisionId: numericDivisionId,
       folderId,
       dateRange,
-      assetIds,
+      assetIds: assetIdsOrUndefined,
       fetchOffset,
       maxAssets,
       fetchSort,
@@ -589,8 +731,8 @@ export const handler: Handler = async (event: IngestEvent) => {
     console.log(`Phase 1 complete: ${fetchedAssets.length} assets fetched in ${fetchDuration}s`);
     
     if (fetchedAssets.length === 0) {
-      if (assetIds && assetIds.length > 0) {
-        console.warn(`No assets found for the provided asset ID(s): ${assetIds.join(', ')}`);
+      if (assetIdsOrUndefined && assetIdsOrUndefined.length > 0) {
+        console.warn(`No assets found for the provided asset ID(s): ${assetIdsOrUndefined.join(', ')}`);
       } else {
         console.warn('No assets found matching criteria');
       }

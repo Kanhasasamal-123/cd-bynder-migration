@@ -95,3 +95,6 @@ temp/
 *.postman_collection.json
 
 .env
+
+# Local retry ID lists (use retry-asset-ids.txt.example as template)
+data/retry-asset-ids.txt
