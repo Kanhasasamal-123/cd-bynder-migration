@@ -119,6 +119,61 @@ function parseEventAssetIds(event: IngestEvent): string[] {
   return [];
 }
 
+/** Wide lookback for retry URL resolution (same order of magnitude as full-folder ingest). */
+const RETRY_URL_LOOKBACK_MINUTES = 52560000;
+
+/**
+ * Fresh signed download URLs come from POST /search (image_origin), not GET /assets/{id}.
+ */
+async function resolveFreshAssetUrls(
+  client: CreativeDriveClient,
+  id: string
+): Promise<{ publicUrl: string; sourceUrl: string }> {
+  const dateRange = calculateDateRange(RETRY_URL_LOOKBACK_MINUTES);
+
+  const { assets } = await client.searchAssets({
+    divisions: [],
+    folderId: '',
+    dateRange,
+    query: id,
+    options: { limit: 10, offset: 0 },
+  });
+
+  const match = assets.find((a) => String(a.attributes.id) === id);
+  let publicUrl = match?.attributes?.meta?.image_origin ?? '';
+
+  const cdAsset = await client.getAssetById(id);
+  const attrs = cdAsset.attributes;
+
+  let cdMetadata: AssetMetadata[] = [];
+  try {
+    cdMetadata = await client.getAssetMetadata(id);
+  } catch (error) {
+    console.warn(
+      `Could not fetch metadata for ${id}: ${error instanceof Error ? error.message : 'Unknown error'}`
+    );
+  }
+
+  const metadataMap = metadataArrayToMap(cdMetadata);
+  const sourceUrl = buildSourceUrl({
+    url: attrs.url,
+    path: attrs.path,
+    filename: attrs.filename ?? attrs.original_filename,
+    metadata: metadataMap,
+    fallback: publicUrl,
+  });
+
+  if (!publicUrl) {
+    publicUrl = sourceUrl;
+  }
+
+  if (!publicUrl) {
+    throw new Error(`No download URL returned from Creative Drive for asset ${id}`);
+  }
+
+  return { publicUrl, sourceUrl: sourceUrl || publicUrl };
+}
+
 async function handleRetryFailedAssets(event: IngestEvent): Promise<{
   statusCode: number;
   body: string;
@@ -174,25 +229,7 @@ async function handleRetryFailedAssets(event: IngestEvent): Promise<{
         const status = existingStatus.get(id);
 
         try {
-          const [cdAsset, cdMetadata] = await Promise.all([
-            client.getAssetById(id),
-            client.getAssetMetadata(id),
-          ]);
-
-          const attrs = cdAsset.attributes;
-          const publicUrl = attrs.meta?.image_origin ?? '';
-          if (!publicUrl) {
-            throw new Error(`No image_origin returned from Creative Drive for asset ${id}`);
-          }
-
-          const metadataMap = metadataArrayToMap(cdMetadata);
-          const sourceUrl = buildSourceUrl({
-            url: attrs.url,
-            path: attrs.path,
-            filename: attrs.filename ?? attrs.original_filename,
-            metadata: metadataMap,
-            fallback: publicUrl,
-          });
+          const { publicUrl, sourceUrl } = await resolveFreshAssetUrls(client, id);
 
           await resetAssetToPending(getTableName(), id, {
             dryRun: isDryRun,

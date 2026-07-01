@@ -165,7 +165,7 @@ export class CreativeDriveClient {
     const response = await this.makeRequest<any>(
       'get',
       `${CREATIVE_DRIVE_BASE_URL}/assets/${assetId}/metadatas`,
-      { headers: { 'X-API-KEY': this.credentials.apiKey } }
+      { headers: { Authorization: this.credentials.apiKey } }
     );
 
     const asset = response.data || response;

@@ -506,40 +506,44 @@ describe('CreativeDriveIngestLambda', () => {
       return Promise.resolve({});
     });
 
+    mockAxiosPost.mockImplementation((_url: string, payload: { query?: string }) => {
+      const id = payload?.query;
+      if (id === '1001' || id === '1003') {
+        return Promise.resolve({
+          data: {
+            data: [
+              {
+                attributes: {
+                  id,
+                  meta: { image_origin: `https://cdn.example.com/fresh/${id}.tif` },
+                },
+              },
+            ],
+            meta: { total: 1 },
+          },
+        });
+      }
+      return Promise.resolve({ data: { data: [], meta: { total: 0 } } });
+    });
+
     mockAxiosGet.mockImplementation((url: string) => {
-      if (url.endsWith('/assets/1001')) {
+      if (url.match(/\/assets\/100[13]$/)) {
+        const id = url.endsWith('1001') ? '1001' : '1003';
         return Promise.resolve({
           data: {
             data: {
               attributes: {
-                id: '1001',
-                original_filename: 'a.tif',
+                id,
+                original_filename: `${id}.tif`,
                 url: 'https://cdn.example.com',
                 path: '/assets',
-                filename: 'a.tif',
-                meta: { image_origin: 'https://cdn.example.com/fresh/1001.tif' },
+                filename: `${id}.tif`,
               },
             },
           },
         });
       }
-      if (url.endsWith('/assets/1001/metadatas')) {
-        return Promise.resolve({ data: { data: [] } });
-      }
-      if (url.endsWith('/assets/1003')) {
-        return Promise.resolve({
-          data: {
-            data: {
-              attributes: {
-                id: '1003',
-                original_filename: 'c.tif',
-                meta: { image_origin: 'https://cdn.example.com/fresh/1003.tif' },
-              },
-            },
-          },
-        });
-      }
-      if (url.endsWith('/assets/1003/metadatas')) {
+      if (url.endsWith('/assets/1001/metadatas') || url.endsWith('/assets/1003/metadatas')) {
         return Promise.resolve({ data: { data: [] } });
       }
       return Promise.reject(new Error(`Unexpected GET ${url}`));
@@ -584,6 +588,20 @@ describe('CreativeDriveIngestLambda', () => {
       return Promise.resolve({});
     });
 
+    mockAxiosPost.mockResolvedValue({
+      data: {
+        data: [
+          {
+            attributes: {
+              id: '1001',
+              meta: { image_origin: 'https://cdn.example.com/fresh/1001.tif' },
+            },
+          },
+        ],
+        meta: { total: 1 },
+      },
+    });
+
     mockAxiosGet.mockImplementation((url: string) => {
       if (url.endsWith('/assets/1001')) {
         return Promise.resolve({
@@ -591,7 +609,7 @@ describe('CreativeDriveIngestLambda', () => {
             data: {
               attributes: {
                 id: '1001',
-                meta: { image_origin: 'https://cdn.example.com/fresh/1001.tif' },
+                original_filename: '1001.tif',
               },
             },
           },
