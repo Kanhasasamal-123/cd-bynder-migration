@@ -19,22 +19,54 @@ Uses the **Ingest Lambda** with action `retry-failed-assets`. Fetches fresh down
 ## How to run (Bitbucket)
 
 1. **Pipelines** → **Run pipeline** → **Custom** → **`retry-failed-assets`**
-2. Provide asset IDs using **one** of:
-   - **`ASSET_ID`** — comma-separated list (fine for small batches)
-   - **`ASSET_IDS_FILE`** — path to a file in the repo, one ID per line (recommended for ~1000+ IDs)
-3. Run with **`DRY_RUN=true`** first; check CloudWatch for `totalReset`
-4. Run again with **`DRY_RUN=false`** to apply
+2. Paste asset IDs into **`ASSET_ID`** — **one ID per line** (recommended, ~500 per run) or comma-separated
+3. Optionally use **`ASSET_IDS_FILE`** if the IDs are already committed in the repo
+4. Run with **`DRY_RUN=true`** first; check CloudWatch for `totalReset`
+5. Run again with **`DRY_RUN=false`** to apply
 
 ### Pipeline variables
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `ASSET_ID` | One of ASSET_ID / ASSET_IDS_FILE | — | Comma-separated Creative Drive asset IDs |
-| `ASSET_IDS_FILE` | One of ASSET_ID / ASSET_IDS_FILE | — | Repo file path, one ID per line (e.g. `data/retry-asset-ids.txt`) |
+| `ASSET_ID` | One of ASSET_ID / ASSET_IDS_FILE | — | Creative Drive asset IDs: **one per line** (paste) or comma-separated |
+| `ASSET_IDS_FILE` | One of ASSET_ID / ASSET_IDS_FILE | — | Repo file path, one ID per line (optional) |
 | `DRY_RUN` | No | `true` | `true` = log only, no DynamoDB writes |
 | `ONLY_FAILED` | No | `true` | `true` = skip records that are not `FAILED` |
+| `SYNC_INVOKE` | No | `true` | `true` = wait for Lambda and print result in Bitbucket log |
 
-### Example: 1153 IDs from a file
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| Bitbucket green but nothing in CloudWatch | Old pipeline used async invoke; wrong log group | Check **Bitbucket step log** first; use log group `/aws/lambda/dam-migration-ingest-prod` |
+| `Parsed asset count: 0` | Bitbucket stripped newlines from `ASSET_ID` | Use comma-separated on one line, or fewer IDs |
+| Lambda `divisionId must be provided` | Ingest Lambda not deployed with `retry-failed-assets` handler | Merge branch and run deployment pipeline |
+| `ResourceNotFoundException` | Wrong `INGEST_LAMBDA` name or region | Pipeline now prints `aws sts get-caller-identity` and `get-function` for verification |
+
+### Example: 500 IDs pasted into ASSET_ID
+
+1. **Pipelines** → **Run pipeline** → **Custom** → **retry-failed-assets**
+2. Paste into **`ASSET_ID`** (one ID per line):
+
+```
+1005992
+1005993
+1005994
+...
+```
+
+3. Set variables:
+
+```
+DRY_RUN     = true
+ONLY_FAILED = true
+```
+
+4. Confirm CloudWatch log `retry-failed-assets completed` shows expected `totalReset`.
+5. Re-run with `DRY_RUN=false`.
+6. Repeat for the next 500 IDs until all ~1153 are done.
+
+### Example: IDs from a repo file (optional)
 
 1. Create `data/retry-asset-ids.txt` in the repo (one ID per line).
 2. Commit and push to the branch you run the pipeline from.
@@ -69,9 +101,15 @@ ONLY_FAILED    = true
 
 ## Verifying success
 
+### Bitbucket pipeline log (recommended)
+
+The pipeline defaults to **`SYNC_INVOKE=true`**, so the Lambda result is printed in the **Bitbucket step log** (look for `retry-failed-assets completed` and `totalReset`). You do not need CloudWatch for the first check.
+
+Set `SYNC_INVOKE=false` only if you want fire-and-forget async invoke (then use CloudWatch).
+
 ### CloudWatch Logs
 
-Log group: `/aws/lambda/dam-migration-ingest-prod`
+Log group: `/aws/lambda/dam-migration-ingest-prod` (not Bitbucket Cloud Insights)
 
 Look for `retry-failed-assets completed`:
 

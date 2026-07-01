@@ -136,11 +136,10 @@ Go to **Repository Settings** → **Pipelines** → **Repository variables** and
 
 **Quick start:**
 
-1. Put IDs in `data/retry-asset-ids.txt` (one per line) or use comma-separated `ASSET_ID`
+1. Paste IDs into **`ASSET_ID`** (one per line, ~500 per run) — no file upload needed
 2. **Pipelines** → **Run pipeline** → **Custom** → **retry-failed-assets**
-3. Set `ASSET_IDS_FILE=data/retry-asset-ids.txt` (or `ASSET_ID`)
-4. Run with `DRY_RUN=true` first; check CloudWatch for `totalReset`
-5. Run again with `DRY_RUN=false`
+3. Run with `DRY_RUN=true` first; check CloudWatch for `totalReset`
+4. Run again with `DRY_RUN=false`; repeat for remaining batches
 
 **Required variables:** `ASSET_ID` or `ASSET_IDS_FILE` (one of)
 
