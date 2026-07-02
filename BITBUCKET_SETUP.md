@@ -12,6 +12,7 @@ The `bitbucket-pipelines.yml` file defines these pipelines:
 4. **Clear Bynder ID State** (`clear-bynder-id-state`) — Custom pipeline to reset incorrect `bynderId` on tracker records
 5. **Retry Failed Assets** (`retry-failed-assets`) — Reset `FAILED` tracker records to `PENDING` for a list of asset IDs
 6. **Nightly Migration** (`nightly-migration-76`) — Scheduled-style custom pipeline for division 76
+7. **Nightly Migration - White BG** (`nightly-migration-white-bg-divisions`) — Scheduled-style custom pipeline for all white-background divisions (45, 46, 65, 89, 231, 232, 233)
 
 ## Prerequisites
 
