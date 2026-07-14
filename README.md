@@ -14,6 +14,8 @@ This project implements a complete, production-ready digital asset migration sys
 
 ## Architecture
 
+For the full architecture reference (component responsibilities, DynamoDB schema, secrets handling, and the Bitbucket CI/CD flow, with an up-to-date diagram) see **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+
 ### Components
 
 1. **CreativeDrive Ingest Lambda** (`src/ingest.ts`)
@@ -24,9 +26,8 @@ This project implements a complete, production-ready digital asset migration sys
 2. **Asset Migration Processor Lambda** (`src/processor.ts`)
    - Triggered by DynamoDB Streams when assets are added
    - Downloads assets from CreativeDrive and uploads directly to Bynder
-   - **Direct upload optimization**: Streams assets directly without S3 intermediate storage (~$167 cost savings)
-   - Simulates upload to Bynder (ready for actual Bynder API integration)
-   - Updates DynamoDB status (`PENDING` → `UPLOADED` or `FAILED`)
+   - **Direct upload**: Streams assets directly from CreativeDrive to Bynder without S3 intermediate storage
+   - Updates DynamoDB status (`PENDING` → `UPLOADED`, `FAILED`, or `ABORTED`)
 
 3. **DynamoDB Table** (`MigrationTrackerTable`)
    - Partition Key: `creativeDriveAssetId` (String)
@@ -292,7 +293,7 @@ aws logs tail /aws/lambda/AssetMigrationProcessorLambda --follow
 | Attribute | Type | Description |
 |-----------|------|-------------|
 | `creativeDriveAssetId` | String (PK) | Unique asset ID from CreativeDrive |
-| `status` | String | PENDING, UPLOADED, FAILED |
+| `status` | String | PENDING, UPLOADED, FAILED, ABORTED |
 | `originalFilename` | String | Original filename from CreativeDrive |
 | `filesize` | Number | File size in bytes |
 | `extension` | String | File extension (e.g., 'tif', 'jpg') |
@@ -310,6 +311,7 @@ aws logs tail /aws/lambda/AssetMigrationProcessorLambda --follow
 - `PENDING`: Asset queued for processing
 - `UPLOADED`: Asset successfully uploaded to Bynder
 - `FAILED`: Asset migration failed (see errorMessage)
+- `ABORTED`: White-background asset had no matching grey-background Bynder asset to attach to (see errorMessage)
 
 ## Troubleshooting
 
