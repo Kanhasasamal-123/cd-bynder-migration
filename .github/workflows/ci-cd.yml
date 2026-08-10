@@ -7,6 +7,15 @@ on:
 
   workflow_dispatch:
 
+env:
+  AWS_REGION: us-east-1
+  STACK_NAME: dam-migration-prod
+  PROJECT_NAME: dam-migration
+
+  # Use your own S3 bucket for Lambda deployment packages
+  LAMBDA_BUCKET: cd-bynder-migration-lambda-676480496045
+  LAMBDA_ZIP_KEY: lambda-deployment.zip
+
 jobs:
   build-test-deploy:
 
@@ -37,16 +46,20 @@ jobs:
       - name: Run tests
         run: npm test
 
-      # 6. Configure AWS
+      # 6. Configure AWS credentials
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{ env.AWS_REGION }}
 
+      # 7. Verify AWS account
+      - name: Verify AWS identity
+        run: |
+          aws sts get-caller-identity
 
-      # 7. Create Lambda deployment package
+      # 8. Create Lambda deployment package
       - name: Package Lambda
         shell: bash
         run: |
@@ -58,28 +71,78 @@ jobs:
 
           zip -r lambda-deployment.zip node_modules
 
-      # 8. Upload Lambda package to S3
+          echo "Lambda package created:"
+          ls -lh lambda-deployment.zip
+
+      # 9. Create S3 bucket if it does not exist
+      - name: Create or verify Lambda package bucket
+        shell: bash
+        run: |
+          if aws s3api head-bucket --bucket "$LAMBDA_BUCKET" 2>/dev/null; then
+            echo "S3 bucket already exists: $LAMBDA_BUCKET"
+          else
+            echo "Creating S3 bucket: $LAMBDA_BUCKET"
+
+            aws s3api create-bucket \
+              --bucket "$LAMBDA_BUCKET" \
+              --region "$AWS_REGION"
+
+            echo "S3 bucket created successfully."
+          fi
+
+      # 10. Enable bucket versioning
+      - name: Enable S3 bucket versioning
+        run: |
+          aws s3api put-bucket-versioning \
+            --bucket "$LAMBDA_BUCKET" \
+            --versioning-configuration Status=Enabled
+
+      # 11. Block public access
+      - name: Block public access
+        run: |
+          aws s3api put-public-access-block \
+            --bucket "$LAMBDA_BUCKET" \
+            --public-access-block-configuration \
+              BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+
+      # 12. Upload Lambda package to S3
       - name: Upload Lambda package
         run: |
           aws s3 cp \
             lambda-deployment.zip \
-            s3://dam-migration-lambda-packages/lambda-deployment.zip
+            "s3://${LAMBDA_BUCKET}/${LAMBDA_ZIP_KEY}"
 
-      # 9. Deploy CloudFormation
+      # 13. Verify Lambda package
+      - name: Verify Lambda package
+        run: |
+          aws s3api head-object \
+            --bucket "$LAMBDA_BUCKET" \
+            --key "$LAMBDA_ZIP_KEY"
+
+      # 14. Deploy CloudFormation
       - name: Deploy CloudFormation
         run: |
           aws cloudformation deploy \
             --template-file cloudformation/infrastructure.yml \
-            --stack-name dam-migration-prod \
+            --stack-name "$STACK_NAME" \
             --capabilities CAPABILITY_NAMED_IAM \
-            --region us-east-1 \
+            --region "$AWS_REGION" \
             --parameter-overrides \
               Environment=prod \
-              ProjectName=dam-migration \
+              ProjectName="$PROJECT_NAME" \
               CreativeDriveApiKey="${{ secrets.CREATIVEDRIVE_API_KEY }}" \
               BynderClientId="${{ secrets.BYNDER_CLIENT_ID }}" \
               BynderClientSecret="${{ secrets.BYNDER_CLIENT_SECRET }}" \
               BynderAccessTokenUrl="${{ secrets.BYNDER_ACCESS_TOKEN_URL }}" \
               BynderApiBaseUrl="${{ secrets.BYNDER_API_BASE_URL }}" \
-              LambdaZipBucket=dam-migration-lambda-packages \
-              LambdaZipKey=lambda-deployment.zip
+              LambdaZipBucket="$LAMBDA_BUCKET" \
+              LambdaZipKey="$LAMBDA_ZIP_KEY"
+
+      # 15. Show deployment result
+      - name: Deployment result
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query "Stacks[0].StackStatus" \
+            --output text
