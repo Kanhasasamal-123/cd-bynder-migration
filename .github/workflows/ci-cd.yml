@@ -1,0 +1,84 @@
+name: DAM Migration Deployment
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+jobs:
+  build-test-deploy:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # 1. Checkout GitHub repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Setup Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # 3. Install dependencies
+      - name: Install dependencies
+        run: npm ci
+
+      # 4. Build TypeScript
+      - name: Build
+        run: npm run build
+
+      # 5. Run tests
+      - name: Run tests
+        run: npm test
+
+      # 6. Configure AWS
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      # 7. Create Lambda deployment package
+      - name: Package Lambda
+        shell: bash
+        run: |
+          rm -f lambda-deployment.zip
+
+          cd dist
+          zip -r ../lambda-deployment.zip .
+          cd ..
+
+          zip -r lambda-deployment.zip node_modules
+
+      # 8. Upload Lambda package to S3
+      - name: Upload Lambda package
+        run: |
+          aws s3 cp \
+            lambda-deployment.zip \
+            s3://dam-migration-lambda-packages/lambda-deployment.zip
+
+      # 9. Deploy CloudFormation
+      - name: Deploy CloudFormation
+        run: |
+          aws cloudformation deploy \
+            --template-file cloudformation/infrastructure.yml \
+            --stack-name dam-migration-prod \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --region us-east-1 \
+            --parameter-overrides \
+              Environment=prod \
+              ProjectName=dam-migration \
+              CreativeDriveApiKey="${{ secrets.CREATIVEDRIVE_API_KEY }}" \
+              BynderClientId="${{ secrets.BYNDER_CLIENT_ID }}" \
+              BynderClientSecret="${{ secrets.BYNDER_CLIENT_SECRET }}" \
+              BynderAccessTokenUrl="${{ secrets.BYNDER_ACCESS_TOKEN_URL }}" \
+              BynderApiBaseUrl="${{ secrets.BYNDER_API_BASE_URL }}" \
+              LambdaZipBucket=dam-migration-lambda-packages \
+              LambdaZipKey=lambda-deployment.zip
