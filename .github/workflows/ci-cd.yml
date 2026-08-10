@@ -45,6 +45,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
+
       # 7. Create Lambda deployment package
       - name: Package Lambda
         shell: bash
