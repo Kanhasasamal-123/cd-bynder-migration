@@ -111,9 +111,12 @@ jobs:
           test -f cloudformation/infrastructure.yml
           echo "CloudFormation template found successfully"
           echo "$AWS_REGION"
-          
+                
       - name: Deploy CloudFormation
+        shell: bash
         run: |
+          set +e
+
           aws cloudformation deploy \
             --template-file cloudformation/infrastructure.yml \
             --stack-name "$STACK_NAME" \
@@ -130,10 +133,18 @@ jobs:
               LambdaZipBucket="$LAMBDA_BUCKET" \
               LambdaZipKey="$LAMBDA_ZIP_KEY"
 
-      - name: Deployment result
-        run: |
-          aws cloudformation describe-stacks \
-            --stack-name "$STACK_NAME" \
-            --region "$AWS_REGION" \
-            --query "Stacks[0].StackStatus" \
-            --output text
+          DEPLOY_STATUS=$?
+
+          if [ $DEPLOY_STATUS -ne 0 ]; then
+            echo "CloudFormation deployment failed."
+            echo "Retrieving CloudFormation events..."
+
+            aws cloudformation describe-events \
+              --stack-name "$STACK_NAME" \
+              --region "$AWS_REGION" \
+              --no-paginate \
+              --query "OperationEvents[?EventType=='VALIDATION_ERROR']" \
+              --output json
+
+            exit $DEPLOY_STATUS
+          fi
