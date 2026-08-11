@@ -111,13 +111,13 @@ jobs:
           test -f cloudformation/infrastructure.yml
           echo "CloudFormation template found successfully"
           echo "$AWS_REGION"
-
+          
       - name: Deploy CloudFormation
         shell: bash
         run: |
           set +e
 
-          # 1. Clean back to the target core stack name
+          # 1. Target the correct core stack name
           FIXED_STACK_NAME="dam-migration-prod"
 
           # 2. Production-grade safety generator to keep name footprints unique and short
@@ -125,7 +125,7 @@ jobs:
           DYNAMIC_PROJECT_NAME="dam-mig-${RANDOM_SUFFIX}"
 
           echo "Applying on-the-fly hotfix to DynamoDB schema definitions..."
-          # 3. Pipeline-only patch: Automatically removes the invalid loose attribute row from memory
+          # 3. Dynamic patch: Strips out the non-key createdAt attribute from definitions array
           sed -i '/- AttributeName: createdAt/{N;d;}' cloudformation/infrastructure.yml
 
           echo "Deploying infrastructure blueprint to stack: $FIXED_STACK_NAME..."
@@ -151,14 +151,15 @@ jobs:
 
           if [ $DEPLOY_STATUS -ne 0 ]; then
             echo "===================================================="
-            echo " DEPLOYMENT FAILED! EXTRACTING LOGGED REASON...     "
+            echo " DEPLOYMENT FAILED! EXTRACTING LIVE STACK FAILURES  "
             echo "===================================================="
 
-            aws cloudformation describe-change-set \
+            # Target the active stack historical events array to find the exact component error
+            aws cloudformation describe-stack-events \
               --stack-name "$FIXED_STACK_NAME" \
-              --change-set-name "awscloudformation-deploy-cloudformation" \
               --region "$AWS_REGION" \
-              --query "{Status: Status, Reason: StatusReason}" \
+              --max-items 30 \
+              --query "StackEvents[?ResourceStatus=='CREATE_FAILED'].{Time:Timestamp, ResourceType:ResourceType, LogicalId:LogicalResourceId, StatusReason:ResourceStatusReason}" \
               --output json
 
             exit $DEPLOY_STATUS
