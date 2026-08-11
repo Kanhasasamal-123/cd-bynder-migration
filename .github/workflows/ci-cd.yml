@@ -97,262 +97,36 @@ jobs:
             lambda-deployment.zip \
             "s3://${LAMBDA_BUCKET}/${LAMBDA_ZIP_KEY}"
 
-      # - name: Verify Lambda package
-      #   run: |
-      #     aws s3api head-object \
-      #       --bucket "$LAMBDA_BUCKET" \
-      #       --key "$LAMBDA_ZIP_KEY"
-
-      # - name: Verify CloudFormation template
-      #   run: |
-      #     pwd
-      #     ls -la
-      #     ls -la cloudformation
-      #     test -f cloudformation/infrastructure.yml
-      #     echo "CloudFormation template found successfully"
-      #     echo "$AWS_REGION"
-                
-      # - name: Deploy CloudFormation
-      #   shell: bash
-      #   run: |
-      #     set +e
-
-      #     aws cloudformation deploy \
-      #       --template-file cloudformation/infrastructure.yml \
-      #       --stack-name "$STACK_NAME" \
-      #       --capabilities CAPABILITY_NAMED_IAM \
-      #       --region "$AWS_REGION" \
-      #       --parameter-overrides \
-      #         Environment=prod \
-      #         ProjectName="$PROJECT_NAME" \
-      #         CreativeDriveApiKey="${{ secrets.CREATIVEDRIVE_API_KEY }}" \
-      #         BynderClientId="${{ secrets.BYNDER_CLIENT_ID }}" \
-      #         BynderClientSecret="${{ secrets.BYNDER_CLIENT_SECRET }}" \
-      #         BynderAccessTokenUrl="${{ secrets.BYNDER_ACCESS_TOKEN_URL }}" \
-      #         BynderApiBaseUrl="${{ secrets.BYNDER_API_BASE_URL }}" \
-      #         LambdaZipBucket="$LAMBDA_BUCKET" \
-      #         LambdaZipKey="$LAMBDA_ZIP_KEY"
-
-      #     DEPLOY_STATUS=$?
-
-      #     if [ $DEPLOY_STATUS -ne 0 ]; then
-      #       echo "CloudFormation deployment failed."
-      #       echo "Retrieving CloudFormation events..."
-
-      #       aws cloudformation describe-events \
-      #         --stack-name "$STACK_NAME" \
-      #         --region "$AWS_REGION" \
-      #         --no-paginate \
-      #         --query "OperationEvents[?EventType=='VALIDATION_ERROR']" \
-      #         --output json
-
-      #       exit $DEPLOY_STATUS
-      #     fi
-
-
-
-
-
-
-
       - name: Verify Lambda package
-          
-        shell: bash
         run: |
-          set -e
-
-          echo "Checking Lambda deployment package..."
-
           aws s3api head-object \
             --bucket "$LAMBDA_BUCKET" \
-            --key "$LAMBDA_ZIP_KEY" \
-            --region "$AWS_REGION"
-
-          echo "Lambda package verified successfully."
+            --key "$LAMBDA_ZIP_KEY"
 
       - name: Verify CloudFormation template
-        shell: bash
         run: |
-          set -e
-
-          echo "Current directory:"
           pwd
-
-          echo "Repository contents:"
           ls -la
-
-          echo "CloudFormation directory:"
           ls -la cloudformation
-
-          echo "Checking infrastructure.yml..."
           test -f cloudformation/infrastructure.yml
-
-          echo "CloudFormation template found successfully."
-
-      - name: Validate CloudFormation template
-        shell: bash
-        run: |
-          set -e
-
-          echo "Validating CloudFormation template..."
-
-          aws cloudformation validate-template \
-            --template-body file://cloudformation/infrastructure.yml \
-            --region "$AWS_REGION"
-
-          echo "CloudFormation template validation successful."
-
-      - name: Verify AWS account and region
-        shell: bash
-        run: |
-          set -e
-
-          echo "AWS Region:"
+          echo "CloudFormation template found successfully"
           echo "$AWS_REGION"
-
-          echo "AWS CLI configured region:"
-          aws configure get region
-
-          echo "AWS identity:"
-          aws sts get-caller-identity
-
-      - name: Verify Lambda S3 bucket
-        shell: bash
-        run: |
-          set -e
-
-          echo "Checking Lambda package bucket..."
-
-          aws s3api head-bucket \
-            --bucket "$LAMBDA_BUCKET" \
-            --region "$AWS_REGION"
-
-          echo "Checking bucket region..."
-
-          BUCKET_REGION=$(aws s3api get-bucket-location \
-            --bucket "$LAMBDA_BUCKET" \
-            --region "$AWS_REGION" \
-            --query "LocationConstraint" \
-            --output text)
-
-          if [ "$BUCKET_REGION" = "None" ]; then
-            BUCKET_REGION="us-east-1"
-          fi
-
-          echo "AWS Region: $AWS_REGION"
-          echo "S3 Bucket Region: $BUCKET_REGION"
-
-          if [ "$BUCKET_REGION" != "$AWS_REGION" ]; then
-            echo "ERROR: S3 bucket region does not match AWS region."
-            exit 1
-          fi
-
-          echo "S3 bucket region verified."
-
-      - name: Verify Lambda package object
-        shell: bash
-        run: |
-          set -e
-
-          echo "Checking Lambda package object..."
-
-          aws s3api head-object \
-            --bucket "$LAMBDA_BUCKET" \
-            --key "$LAMBDA_ZIP_KEY" \
-            --region "$AWS_REGION"
-
-          echo "Lambda package object verified."
-
-      - name: Verify CloudFormation parameters
-        shell: bash
-        run: |
-          set -e
-
-          echo "Checking required deployment parameters..."
-
-          test -n "$AWS_REGION"
-          test -n "$STACK_NAME"
-          test -n "$PROJECT_NAME"
-          test -n "$LAMBDA_BUCKET"
-          test -n "$LAMBDA_ZIP_KEY"
-
-          echo "Environment parameters verified."
-
-      - name: Verify required secrets
-        shell: bash
-        run: |
-          set -e
-
-          if [ -z "${{ secrets.CREATIVEDRIVE_API_KEY }}" ]; then
-            echo "ERROR: CREATIVEDRIVE_API_KEY is missing."
-            exit 1
-          fi
-
-          if [ -z "${{ secrets.BYNDER_CLIENT_ID }}" ]; then
-            echo "ERROR: BYNDER_CLIENT_ID is missing."
-            exit 1
-          fi
-
-          if [ -z "${{ secrets.BYNDER_CLIENT_SECRET }}" ]; then
-            echo "ERROR: BYNDER_CLIENT_SECRET is missing."
-            exit 1
-          fi
-
-          if [ -z "${{ secrets.BYNDER_ACCESS_TOKEN_URL }}" ]; then
-            echo "ERROR: BYNDER_ACCESS_TOKEN_URL is missing."
-            exit 1
-          fi
-
-          if [ -z "${{ secrets.BYNDER_API_BASE_URL }}" ]; then
-            echo "ERROR: BYNDER_API_BASE_URL is missing."
-            exit 1
-          fi
-
-          echo "Required secrets are available."
-
-      - name: Check CloudFormation stack
-        shell: bash
-        run: |
-          set +e
-
-          echo "Checking CloudFormation stack..."
-
-          aws cloudformation describe-stacks \
-            --stack-name "$STACK_NAME" \
-            --region "$AWS_REGION"
-
-          STACK_STATUS=$?
-
-          if [ $STACK_STATUS -eq 0 ]; then
-            echo "CloudFormation stack exists."
-
-            aws cloudformation describe-stacks \
-              --stack-name "$STACK_NAME" \
-              --region "$AWS_REGION" \
-              --query "Stacks[0].StackStatus" \
-              --output text
-          else
-            echo "CloudFormation stack does not exist."
-            echo "CloudFormation will create a new stack."
-          fi
-
+          
       - name: Deploy CloudFormation
         shell: bash
         run: |
           set +e
 
-          echo "Starting CloudFormation deployment..."
-          echo "Stack: $STACK_NAME"
-          echo "Region: $AWS_REGION"
-          echo "Template: cloudformation/infrastructure.yml"
-          echo "Lambda bucket: $LAMBDA_BUCKET"
-          echo "Lambda key: $LAMBDA_ZIP_KEY"
+          # We generate a unique name for the changeset to query it if it fails
+          CHANGESET_NAME="cs-${{ github.run_id }}-${{ github.run_attempts }}"
 
           aws cloudformation deploy \
             --template-file cloudformation/infrastructure.yml \
             --stack-name "$STACK_NAME" \
             --capabilities CAPABILITY_NAMED_IAM \
             --region "$AWS_REGION" \
+            --disable-validation \
+            --changeset-name "$CHANGESET_NAME" \
             --parameter-overrides \
               Environment=prod \
               ProjectName="$PROJECT_NAME" \
@@ -367,67 +141,16 @@ jobs:
           DEPLOY_STATUS=$?
 
           if [ $DEPLOY_STATUS -ne 0 ]; then
-
-            echo "=========================================="
-            echo "CloudFormation deployment failed"
-            echo "=========================================="
-
-            echo ""
-            echo "Stack status:"
-            aws cloudformation describe-stacks \
-              --stack-name "$STACK_NAME" \
-              --region "$AWS_REGION" \
-              --query "Stacks[0].{
-                StackName:StackName,
-                StackStatus:StackStatus,
-                StackStatusReason:StackStatusReason
-              }" \
-              --output json 2>/dev/null || true
-
-            echo ""
-            echo "CloudFormation events:"
-            aws cloudformation describe-events \
-              --stack-name "$STACK_NAME" \
-              --region "$AWS_REGION" \
-              --no-paginate \
-              --output json 2>/dev/null || true
-
-            echo ""
-            echo "CloudFormation change sets:"
-            aws cloudformation list-change-sets \
-              --stack-name "$STACK_NAME" \
-              --region "$AWS_REGION" \
-              --output json 2>/dev/null || true
-
-            echo ""
-            echo "Checking S3 deployment package again:"
-            aws s3api head-object \
-              --bucket "$LAMBDA_BUCKET" \
-              --key "$LAMBDA_ZIP_KEY" \
-              --region "$AWS_REGION" \
-              --output json 2>/dev/null || true
-
-            echo ""
             echo "CloudFormation deployment failed."
+            echo "Retrieving CloudFormation ChangeSet error details..."
+
+            # Pulls the real reason why the deployment failed before creating the stack
+            aws cloudformation describe-change-set \
+              --stack-name "$STACK_NAME" \
+              --change-set-name "$CHANGESET_NAME" \
+              --region "$AWS_REGION" \
+              --query "{Status: Status, Reason: StatusReason}" \
+              --output json
 
             exit $DEPLOY_STATUS
           fi
-
-          echo "CloudFormation deployment completed successfully."
-
-      - name: Verify deployed stack
-        shell: bash
-        run: |
-          set -e
-
-          echo "Final CloudFormation stack status:"
-
-          aws cloudformation describe-stacks \
-            --stack-name "$STACK_NAME" \
-            --region "$AWS_REGION" \
-            --query "Stacks[0].{
-              StackName:StackName,
-              StackStatus:StackStatus,
-              StackStatusReason:StackStatusReason
-            }" \
-            --output table
