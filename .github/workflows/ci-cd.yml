@@ -113,19 +113,19 @@ jobs:
           echo "$AWS_REGION"
 
 
-
       - name: Deploy CloudFormation
         shell: bash
         run: |
+          set +e
+
           echo "Deploying infrastructure template to stack: $STACK_NAME..."
 
-          # Added the --disable-validation parameter to natively bypass the hook validation gate
+          # Using the standard deploy command without any unsupported validation flags
           aws cloudformation deploy \
             --template-file cloudformation/infrastructure.yml \
             --stack-name "$STACK_NAME" \
             --capabilities CAPABILITY_NAMED_IAM \
             --region "$AWS_REGION" \
-            --disable-validation \
             --parameter-overrides \
               Environment=prod \
               ProjectName="$PROJECT_NAME" \
@@ -136,3 +136,23 @@ jobs:
               BynderApiBaseUrl="${{ secrets.BYNDER_API_BASE_URL }}" \
               LambdaZipBucket="$LAMBDA_BUCKET" \
               LambdaZipKey="$LAMBDA_ZIP_KEY"
+
+          DEPLOY_STATUS=$?
+
+          if [ $DEPLOY_STATUS -ne 0 ]; then
+            echo "===================================================="
+            echo " DEPLOYMENT FAILED! FETCHING TRUE ERROR REASON...   "
+            echo "===================================================="
+
+            # This fetches the exact resource that failed creation due to name clashing
+            aws cloudformation describe-stack-events \
+              --stack-name "$STACK_NAME" \
+              --region "$AWS_REGION" \
+              --max-items 20 \
+              --query "StackEvents[?ResourceStatus=='CREATE_FAILED'].{Resource:ResourceType, LogicalId:LogicalResourceId, Reason:ResourceStatusReason}" \
+              --output json
+
+            exit $DEPLOY_STATUS
+          fi
+
+          echo "Deployment finished successfully!"
