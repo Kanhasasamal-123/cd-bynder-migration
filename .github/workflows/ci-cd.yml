@@ -117,19 +117,18 @@ jobs:
         run: |
           set +e
 
-          # 1. Target the correct core stack name
           FIXED_STACK_NAME="dam-migration-prod"
-
-          # 2. Production-grade safety generator to keep name footprints unique and short
           RANDOM_SUFFIX=$(shuf -i 1000-9999 -n 1)
           DYNAMIC_PROJECT_NAME="dam-mig-${RANDOM_SUFFIX}"
 
-          echo "Applying on-the-fly hotfix to DynamoDB schema definitions..."
-          # 3. Dynamic patch: Strips out the non-key createdAt attribute from definitions array
+          echo "Applying pipeline patches..."
+          # 1. Patch: Fixes the DynamoDB schema validation bug
           sed -i '/- AttributeName: createdAt/{N;d;}' cloudformation/infrastructure.yml
 
+          # 2. THE ACTUAL FIX: Strips out the concurrency rule causing the AWS account limit failure
+          sed -i '/ReservedConcurrentExecutions:/d' cloudformation/infrastructure.yml
+
           echo "Deploying infrastructure blueprint to stack: $FIXED_STACK_NAME..."
-          echo "Overriding ProjectName namespace parameter to: $DYNAMIC_PROJECT_NAME"
 
           aws cloudformation deploy \
             --template-file cloudformation/infrastructure.yml \
@@ -148,20 +147,14 @@ jobs:
               LambdaZipKey="$LAMBDA_ZIP_KEY"
 
           DEPLOY_STATUS=$?
-
           if [ $DEPLOY_STATUS -ne 0 ]; then
-            echo "===================================================="
-            echo " DEPLOYMENT FAILED! EXTRACTING LIVE STACK FAILURES  "
-            echo "===================================================="
-
-            # Target the active stack historical events array to find the exact component error
+            echo "Deployment failed."
             aws cloudformation describe-stack-events \
               --stack-name "$FIXED_STACK_NAME" \
               --region "$AWS_REGION" \
               --max-items 30 \
               --query "StackEvents[?ResourceStatus=='CREATE_FAILED'].{Time:Timestamp, ResourceType:ResourceType, LogicalId:LogicalResourceId, StatusReason:ResourceStatusReason}" \
               --output json
-
             exit $DEPLOY_STATUS
           fi
 
