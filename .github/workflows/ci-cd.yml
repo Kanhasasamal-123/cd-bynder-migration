@@ -94,6 +94,15 @@ jobs:
             --bucket "$LAMBDA_BUCKET" \
             --key "$LAMBDA_ZIP_KEY"
 
+      - name: Verify CloudFormation template
+        run: |
+          pwd
+          ls -la
+          ls -la cloudformation
+          test -f cloudformation/infrastructure.yml
+          echo "CloudFormation template found successfully"
+          echo "$AWS_REGION"
+          
       - name: Deploy CloudFormation
         run: |
           aws cloudformation deploy \
@@ -119,4 +128,3 @@ jobs:
             --region "$AWS_REGION" \
             --query "Stacks[0].StackStatus" \
             --output text
-            
