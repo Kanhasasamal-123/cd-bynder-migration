@@ -112,16 +112,16 @@ jobs:
           echo "CloudFormation template found successfully"
           echo "$AWS_REGION"
 
-
       - name: Deploy CloudFormation
         shell: bash
         run: |
           set +e
 
-          CHANGESET_NAME="cs-${{ github.run_id }}-${{ github.run_attempts }}"
+          # Removed run_attempts to fix the trailing hyphen naming bug
+          CHANGESET_NAME="cs-${{ github.run_id }}"
           echo "Creating unique ChangeSet: $CHANGESET_NAME"
 
-          # 1. Create the Change Set using the low-level API to natively support validation bypass
+          # 1. Create the Change Set using a clean JSON parameters array string
           aws cloudformation create-change-set \
             --stack-name "$STACK_NAME" \
             --template-body "file://cloudformation/infrastructure.yml" \
@@ -129,16 +129,17 @@ jobs:
             --capabilities CAPABILITY_NAMED_IAM \
             --region "$AWS_REGION" \
             --disable-validation \
-            --parameter-overrides \
-              ParameterKey=Environment,ParameterValue=prod \
-              ParameterKey=ProjectName,ParameterValue="$PROJECT_NAME" \
-              ParameterKey=CreativeDriveApiKey,ParameterValue="${{ secrets.CREATIVEDRIVE_API_KEY }}" \
-              ParameterKey=BynderClientId,ParameterValue="${{ secrets.BYNDER_CLIENT_ID }}" \
-              ParameterKey=BynderClientSecret,ParameterValue="${{ secrets.BYNDER_CLIENT_SECRET }}" \
-              ParameterKey=BynderAccessTokenUrl,ParameterValue="${{ secrets.BYNDER_ACCESS_TOKEN_URL }}" \
-              ParameterKey=BynderApiBaseUrl,ParameterValue="${{ secrets.BYNDER_API_BASE_URL }}" \
-              ParameterKey=LambdaZipBucket,ParameterValue="$LAMBDA_BUCKET" \
-              ParameterKey=LambdaZipKey,ParameterValue="$LAMBDA_ZIP_KEY"
+            --parameters '[
+              {"ParameterKey":"Environment","ParameterValue":"prod"},
+              {"ParameterKey":"ProjectName","ParameterValue":"'"$PROJECT_NAME"'"},
+              {"ParameterKey":"CreativeDriveApiKey","ParameterValue":"${{ secrets.CREATIVEDRIVE_API_KEY }}"},
+              {"ParameterKey":"BynderClientId","ParameterValue":"${{ secrets.BYNDER_CLIENT_ID }}"},
+              {"ParameterKey":"BynderClientSecret","ParameterValue":"${{ secrets.BYNDER_CLIENT_SECRET }}"},
+              {"ParameterKey":"BynderAccessTokenUrl","ParameterValue":"${{ secrets.BYNDER_ACCESS_TOKEN_URL }}"},
+              {"ParameterKey":"BynderApiBaseUrl","ParameterValue":"${{ secrets.BYNDER_API_BASE_URL }}"},
+              {"ParameterKey":"LambdaZipBucket","ParameterValue":"'"$LAMBDA_BUCKET"'"},
+              {"ParameterKey":"LambdaZipKey","ParameterValue":"'"$LAMBDA_ZIP_KEY"'"}
+            ]'
 
           # 2. Wait for CloudFormation to compile the change set blueprint
           echo "Waiting for change set creation..."
