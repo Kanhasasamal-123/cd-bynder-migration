@@ -111,46 +111,80 @@ jobs:
           test -f cloudformation/infrastructure.yml
           echo "CloudFormation template found successfully"
           echo "$AWS_REGION"
-          
+
+
       - name: Deploy CloudFormation
         shell: bash
         run: |
           set +e
 
-          # We generate a unique name for the changeset to query it if it fails
           CHANGESET_NAME="cs-${{ github.run_id }}-${{ github.run_attempts }}"
+          echo "Creating unique ChangeSet: $CHANGESET_NAME"
 
-          aws cloudformation deploy \
-            --template-file cloudformation/infrastructure.yml \
+          # 1. Create the Change Set using the low-level API to natively support validation bypass
+          aws cloudformation create-change-set \
             --stack-name "$STACK_NAME" \
+            --template-body "file://cloudformation/infrastructure.yml" \
+            --change-set-name "$CHANGESET_NAME" \
             --capabilities CAPABILITY_NAMED_IAM \
             --region "$AWS_REGION" \
             --disable-validation \
-            --changeset-name "$CHANGESET_NAME" \
             --parameter-overrides \
-              Environment=prod \
-              ProjectName="$PROJECT_NAME" \
-              CreativeDriveApiKey="${{ secrets.CREATIVEDRIVE_API_KEY }}" \
-              BynderClientId="${{ secrets.BYNDER_CLIENT_ID }}" \
-              BynderClientSecret="${{ secrets.BYNDER_CLIENT_SECRET }}" \
-              BynderAccessTokenUrl="${{ secrets.BYNDER_ACCESS_TOKEN_URL }}" \
-              BynderApiBaseUrl="${{ secrets.BYNDER_API_BASE_URL }}" \
-              LambdaZipBucket="$LAMBDA_BUCKET" \
-              LambdaZipKey="$LAMBDA_ZIP_KEY"
+              ParameterKey=Environment,ParameterValue=prod \
+              ParameterKey=ProjectName,ParameterValue="$PROJECT_NAME" \
+              ParameterKey=CreativeDriveApiKey,ParameterValue="${{ secrets.CREATIVEDRIVE_API_KEY }}" \
+              ParameterKey=BynderClientId,ParameterValue="${{ secrets.BYNDER_CLIENT_ID }}" \
+              ParameterKey=BynderClientSecret,ParameterValue="${{ secrets.BYNDER_CLIENT_SECRET }}" \
+              ParameterKey=BynderAccessTokenUrl,ParameterValue="${{ secrets.BYNDER_ACCESS_TOKEN_URL }}" \
+              ParameterKey=BynderApiBaseUrl,ParameterValue="${{ secrets.BYNDER_API_BASE_URL }}" \
+              ParameterKey=LambdaZipBucket,ParameterValue="$LAMBDA_BUCKET" \
+              ParameterKey=LambdaZipKey,ParameterValue="$LAMBDA_ZIP_KEY"
 
-          DEPLOY_STATUS=$?
+          # 2. Wait for CloudFormation to compile the change set blueprint
+          echo "Waiting for change set creation..."
+          aws cloudformation wait change-set-create-complete \
+            --stack-name "$STACK_NAME" \
+            --change-set-name "$CHANGESET_NAME" \
+            --region "$AWS_REGION"
 
-          if [ $DEPLOY_STATUS -ne 0 ]; then
-            echo "CloudFormation deployment failed."
-            echo "Retrieving CloudFormation ChangeSet error details..."
-
-            # Pulls the real reason why the deployment failed before creating the stack
+          COMPILE_STATUS=$?
+          if [ $COMPILE_STATUS -ne 0 ]; then
+            echo "CloudFormation compilation failed."
+            echo "Retrieving ChangeSet failure reason..."
             aws cloudformation describe-change-set \
               --stack-name "$STACK_NAME" \
               --change-set-name "$CHANGESET_NAME" \
               --region "$AWS_REGION" \
               --query "{Status: Status, Reason: StatusReason}" \
               --output json
+            exit $COMPILE_STATUS
+          fi
+
+          # 3. Execute the deployment
+          echo "Executing deployment..."
+          aws cloudformation execute-change-set \
+            --stack-name "$STACK_NAME" \
+            --change-set-name "$CHANGESET_NAME" \
+            --region "$AWS_REGION"
+
+          # 4. Wait for the infrastructure to finish updating on AWS
+          echo "Waiting for stack deployment to finish..."
+          aws cloudformation wait stack-update-complete \
+            --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION"
+
+          DEPLOY_STATUS=$?
+          if [ $DEPLOY_STATUS -ne 0 ]; then
+            echo "Deployment execution failed. Fetching colliding resource details..."
+            
+            # This extracts the exact resource name or type causing the rollback state
+            aws cloudformation describe-stack-events \
+              --stack-name "$STACK_NAME" \
+              --region "$AWS_REGION" \
+              --query "StackEvents[?ResourceStatus=='CREATE_FAILED'].{Type:ResourceType, LogicalId:LogicalResourceId, Reason:ResourceStatusReason}" \
+              --output json
 
             exit $DEPLOY_STATUS
           fi
+
+          echo "Deployment completed successfully!"
