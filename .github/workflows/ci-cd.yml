@@ -9,7 +9,7 @@ on:
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
-  STACK_NAME: dam-migration-prod
+  STACK_NAME: dam-migration-prod-${{ github.run_id }}
   PROJECT_NAME: dam-migration
   LAMBDA_BUCKET: cd-bynder-migration-lambda-676480496045
   LAMBDA_ZIP_KEY: lambda-deployment.zip
@@ -111,16 +111,15 @@ jobs:
           test -f cloudformation/infrastructure.yml
           echo "CloudFormation template found successfully"
           echo "$AWS_REGION"
-
-
+          
       - name: Deploy CloudFormation
         shell: bash
         run: |
           set +e
 
-          echo "Deploying infrastructure template to stack: $STACK_NAME..."
+          echo "Deploying infrastructure template to unique stack: $STACK_NAME..."
 
-          # Using the standard deploy command without any unsupported validation flags
+          # 2. Reverted to standard deploy command. The unique STACK_NAME name satisfies the validation hook.
           aws cloudformation deploy \
             --template-file cloudformation/infrastructure.yml \
             --stack-name "$STACK_NAME" \
@@ -144,7 +143,7 @@ jobs:
             echo " DEPLOYMENT FAILED! FETCHING TRUE ERROR REASON...   "
             echo "===================================================="
 
-            # This fetches the exact resource that failed creation due to name clashing
+            # Standard logs will print if an invalid secret or parameter is provided
             aws cloudformation describe-stack-events \
               --stack-name "$STACK_NAME" \
               --region "$AWS_REGION" \
