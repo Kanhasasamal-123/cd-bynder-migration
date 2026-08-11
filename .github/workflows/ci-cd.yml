@@ -62,13 +62,22 @@ jobs:
 
           ls -lh lambda-deployment.zip
 
-      - name: Create S3 bucket
+      - name: Create or verify S3 bucket
+        shell: bash
         run: |
-          aws s3api create-bucket \
-            --bucket "$LAMBDA_BUCKET" \
-            --region "$AWS_REGION" \
-            --create-bucket-configuration LocationConstraint="$AWS_REGION"
+          if aws s3api head-bucket --bucket "$LAMBDA_BUCKET" 2>/dev/null; then
+            echo "S3 bucket already exists. Using: $LAMBDA_BUCKET"
+          else
+            echo "S3 bucket does not exist. Creating: $LAMBDA_BUCKET"
 
+            aws s3api create-bucket \
+              --bucket "$LAMBDA_BUCKET" \
+              --region "$AWS_REGION" \
+              --create-bucket-configuration LocationConstraint="$AWS_REGION"
+
+            echo "S3 bucket created successfully: $LAMBDA_BUCKET"
+          fi
+          
       - name: Enable S3 bucket versioning
         run: |
           aws s3api put-bucket-versioning \
