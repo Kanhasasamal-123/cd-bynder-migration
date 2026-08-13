@@ -1,159 +1,80 @@
-name: DAM Migration Deployment
+name: Deploy DAM Migration Infrastructure
 
 on:
   push:
     branches:
       - main
+  workflow_dispatch: {}   # lets you trigger it manually from the Actions tab
 
-  workflow_dispatch:
+permissions:
+  id-token: write   # required for OIDC -> AWS role assumption
+  contents: read
 
 env:
-  AWS_REGION: ${{ secrets.AWS_REGION }}
-  STACK_NAME: dam-migration-prod-${{ github.run_id }}
-  PROJECT_NAME: dam-migration
-  LAMBDA_BUCKET: cd-bynder-migration-lambda-676480496045
-  LAMBDA_ZIP_KEY: lambda-deployment.zip
+  AWS_REGION: us-east-1
+  LAMBDA_ZIP_BUCKET: dam-migration-lambda-packages
+  STACK_NAME: dam-migration-prod
 
 jobs:
   build-test-deploy:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
+          node-version: '20.x'
+          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Build TypeScript
-        run: npm run build
+      - name: Lint
+        run: npm run lint
 
-      - name: Run tests
+      - name: Unit tests
         run: npm test
 
-      - name: Package Lambda
-        shell: bash
-        run: |
-          rm -f lambda-deployment.zip
+      - name: Build (TypeScript compile)
+        run: npm run build
 
+      - name: Package Lambda deployment zip
+        run: |
           cd dist
           zip -r ../lambda-deployment.zip .
           cd ..
-
+          # install only production deps for a lean Lambda package
+          npm ci --omit=dev
           zip -r lambda-deployment.zip node_modules
 
-          ls -lh lambda-deployment.zip
-
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Verify AWS configuration
+      - name: Upload Lambda package to S3
         run: |
-          echo "AWS Region: $AWS_REGION"
-          aws sts get-caller-identity
+          aws s3 cp lambda-deployment.zip \
+            "s3://${{ env.LAMBDA_ZIP_BUCKET }}/lambda-deployment-${{ github.sha }}.zip"
 
-      - name: Create or verify S3 bucket
-        shell: bash
+      - name: Deploy CloudFormation stack
         run: |
-          if aws s3api head-bucket --bucket "$LAMBDA_BUCKET" 2>/dev/null; then
-            echo "S3 bucket already exists. Using: $LAMBDA_BUCKET"
-          else
-            echo "S3 bucket does not exist. Creating: $LAMBDA_BUCKET"
-
-            aws s3api create-bucket \
-              --bucket "$LAMBDA_BUCKET" \
-              --region "$AWS_REGION" \
-              --create-bucket-configuration LocationConstraint="$AWS_REGION"
-
-            echo "S3 bucket created successfully: $LAMBDA_BUCKET"
-          fi
-          
-      - name: Enable S3 bucket versioning
-        run: |
-          aws s3api put-bucket-versioning \
-            --bucket "$LAMBDA_BUCKET" \
-            --versioning-configuration Status=Enabled
-
-      - name: Block public access
-        run: |
-          aws s3api put-public-access-block \
-            --bucket "$LAMBDA_BUCKET" \
-            --public-access-block-configuration \
-              BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
-
-      - name: Upload Lambda package
-        run: |
-          aws s3 cp \
-            lambda-deployment.zip \
-            "s3://${LAMBDA_BUCKET}/${LAMBDA_ZIP_KEY}"
-
-      - name: Verify Lambda package
-        run: |
-          aws s3api head-object \
-            --bucket "$LAMBDA_BUCKET" \
-            --key "$LAMBDA_ZIP_KEY"
-
-      - name: Verify CloudFormation template
-        run: |
-          pwd
-          ls -la
-          ls -la cloudformation
-          test -f cloudformation/infrastructure.yml
-          echo "CloudFormation template found successfully"
-          echo "$AWS_REGION"
-
-      - name: Deploy CloudFormation
-        shell: bash
-        run: |
-          set +e
-
-          FIXED_STACK_NAME="dam-migration-prod"
-          RANDOM_SUFFIX=$(shuf -i 1000-9999 -n 1)
-          DYNAMIC_PROJECT_NAME="dam-mig-${RANDOM_SUFFIX}"
-
-          echo "Applying pipeline patches..."
-
-          sed -i '/- AttributeName: createdAt/{N;d;}' cloudformation/infrastructure.yml
-          sed -i '/ReservedConcurrentExecutions:/d' cloudformation/infrastructure.yml
-
-          echo "Deploying infrastructure blueprint to stack: $FIXED_STACK_NAME..."
-
           aws cloudformation deploy \
             --template-file cloudformation/infrastructure.yml \
-            --stack-name "$FIXED_STACK_NAME" \
-            --capabilities CAPABILITY_NAMED_IAM \
-            --region "$AWS_REGION" \
+            --stack-name "${{ env.STACK_NAME }}" \
             --parameter-overrides \
               Environment=prod \
-              ProjectName="$DYNAMIC_PROJECT_NAME" \
+              ProjectName=dam-migration \
               CreativeDriveApiKey="${{ secrets.CREATIVEDRIVE_API_KEY }}" \
               BynderClientId="${{ secrets.BYNDER_CLIENT_ID }}" \
               BynderClientSecret="${{ secrets.BYNDER_CLIENT_SECRET }}" \
               BynderAccessTokenUrl="${{ secrets.BYNDER_ACCESS_TOKEN_URL }}" \
               BynderApiBaseUrl="${{ secrets.BYNDER_API_BASE_URL }}" \
-              LambdaZipBucket="$LAMBDA_BUCKET" \
-              LambdaZipKey="$LAMBDA_ZIP_KEY"
-
-          DEPLOY_STATUS=$?
-          if [ $DEPLOY_STATUS -ne 0 ]; then
-            echo "Deployment failed."
-            aws cloudformation describe-stack-events \
-              --stack-name "$FIXED_STACK_NAME" \
-              --region "$AWS_REGION" \
-              --max-items 30 \
-              --query "StackEvents[?ResourceStatus=='CREATE_FAILED'].{Time:Timestamp, ResourceType:ResourceType, LogicalId:LogicalResourceId, StatusReason:ResourceStatusReason}" \
-              --output json
-            exit $DEPLOY_STATUS
-          fi
-
-          echo "Deployment completed successfully!"
+              LambdaZipBucket="${{ env.LAMBDA_ZIP_BUCKET }}" \
+              LambdaZipKey="lambda-deployment-${{ github.sha }}.zip" \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --region "${{ env.AWS_REGION }}" \
+            --no-fail-on-empty-changeset
