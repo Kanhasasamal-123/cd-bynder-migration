@@ -80,7 +80,7 @@ Resources:
           AttributeType: S
         - AttributeName: status
           AttributeType: S
-        - AttributeName: createdAt #M
+        - AttributeName: createdAt
           AttributeType: S
       KeySchema:
         - AttributeName: creativeDriveAssetId
@@ -90,7 +90,7 @@ Resources:
           KeySchema:
             - AttributeName: status
               KeyType: HASH
-            - AttributeName: createdAt #M
+            - AttributeName: createdAt
               KeyType: RANGE
           Projection:
             ProjectionType: ALL
@@ -306,7 +306,7 @@ Resources:
           Value: !Ref ProjectName
 
   # Event Source Mapping: DynamoDB Stream to Processor Lambda
-  ProcessorEventSourceMapping:
+  ProcessorEventSourceMapping: #M
     Type: AWS::Lambda::EventSourceMapping
     Properties:
       EventSourceArn: !GetAtt MigrationTrackerTable.StreamArn
