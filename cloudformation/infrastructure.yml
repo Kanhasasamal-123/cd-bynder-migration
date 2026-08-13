@@ -80,7 +80,7 @@ Resources:
           AttributeType: S
         - AttributeName: status
           AttributeType: S
-        - AttributeName: createdAt
+        - AttributeName: createdAt #M
           AttributeType: S
       KeySchema:
         - AttributeName: creativeDriveAssetId
@@ -90,7 +90,7 @@ Resources:
           KeySchema:
             - AttributeName: status
               KeyType: HASH
-            - AttributeName: createdAt
+            - AttributeName: createdAt #M
               KeyType: RANGE
           Projection:
             ProjectionType: ALL
@@ -288,7 +288,7 @@ Resources:
       Role: !GetAtt ProcessorLambdaRole.Arn
       Timeout: 300
       MemorySize: 1024
-      ReservedConcurrentExecutions: 7
+      ReservedConcurrentExecutions: 7 #M
       Code:
         S3Bucket: !Ref LambdaZipBucket
         S3Key: !Ref LambdaZipKey

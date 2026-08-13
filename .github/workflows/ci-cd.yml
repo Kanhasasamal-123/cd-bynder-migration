@@ -9,7 +9,7 @@ on:
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
-  STACK_NAME: dam-migration-prod-${{ github.run_id }}
+  STACK_NAME: dam-migration
   PROJECT_NAME: dam-migration
   LAMBDA_BUCKET: cd-bynder-migration-lambda-676480496045
   LAMBDA_ZIP_KEY: lambda-deployment.zip
@@ -37,18 +37,6 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Verify AWS configuration
-        run: |
-          echo "AWS Region: $AWS_REGION"
-          aws sts get-caller-identity
-
       - name: Package Lambda
         shell: bash
         run: |
@@ -62,22 +50,34 @@ jobs:
 
           ls -lh lambda-deployment.zip
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify AWS configuration
+        run: |
+          echo "AWS Region: $AWS_REGION"
+          aws sts get-caller-identity
+
       - name: Create or verify S3 bucket
         shell: bash
         run: |
           if aws s3api head-bucket --bucket "$LAMBDA_BUCKET" 2>/dev/null; then
-            echo "S3 bucket already exists. Using: $LAMBDA_BUCKET"
+            echo "S3 bucket already exists: $LAMBDA_BUCKET"
           else
-            echo "S3 bucket does not exist. Creating: $LAMBDA_BUCKET"
+            echo "Creating S3 bucket: $LAMBDA_BUCKET"
 
             aws s3api create-bucket \
               --bucket "$LAMBDA_BUCKET" \
               --region "$AWS_REGION" \
               --create-bucket-configuration LocationConstraint="$AWS_REGION"
 
-            echo "S3 bucket created successfully: $LAMBDA_BUCKET"
+            echo "S3 bucket created successfully"
           fi
-          
+
       - name: Enable S3 bucket versioning
         run: |
           aws s3api put-bucket-versioning \
@@ -93,15 +93,22 @@ jobs:
 
       - name: Upload Lambda package
         run: |
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          S3_KEY="lambda-deployment-${TIMESTAMP}.zip"
+
+          echo "S3_KEY=$S3_KEY" >> $GITHUB_ENV
+
           aws s3 cp \
             lambda-deployment.zip \
-            "s3://${LAMBDA_BUCKET}/${LAMBDA_ZIP_KEY}"
+            "s3://${LAMBDA_BUCKET}/${S3_KEY}"
+
+          echo "Lambda package uploaded as $S3_KEY"
 
       - name: Verify Lambda package
         run: |
           aws s3api head-object \
             --bucket "$LAMBDA_BUCKET" \
-            --key "$LAMBDA_ZIP_KEY"
+            --key "$S3_KEY"
 
       - name: Verify CloudFormation template
         run: |
@@ -109,53 +116,67 @@ jobs:
           ls -la
           ls -la cloudformation
           test -f cloudformation/infrastructure.yml
-          echo "CloudFormation template found successfully"
-          echo "$AWS_REGION"
-          
+          echo "CloudFormation template found"
+
+      - name: Validate CloudFormation Template
+        run: |
+          aws cloudformation validate-template \
+            --template-body file://cloudformation/infrastructure.yml \
+            --region "$AWS_REGION"
+
       - name: Deploy CloudFormation
         shell: bash
         run: |
           set +e
 
-          FIXED_STACK_NAME="dam-migration-prod"
-          RANDOM_SUFFIX=$(shuf -i 1000-9999 -n 1)
-          DYNAMIC_PROJECT_NAME="dam-mig-${RANDOM_SUFFIX}"
-
           echo "Applying pipeline patches..."
-          # 1. Patch: Fixes the DynamoDB schema validation bug
-          sed -i '/- AttributeName: createdAt/{N;d;}' cloudformation/infrastructure.yml
 
-          # 2. THE ACTUAL FIX: Strips out the concurrency rule causing the AWS account limit failure
-          sed -i '/ReservedConcurrentExecutions:/d' cloudformation/infrastructure.yml
+          # sed -i '/- AttributeName: createdAt/{N;d;}' cloudformation/infrastructure.yml
+          # sed -i '/ReservedConcurrentExecutions:/d' cloudformation/infrastructure.yml
 
-          echo "Deploying infrastructure blueprint to stack: $FIXED_STACK_NAME..."
+          echo "Deploying CloudFormation stack: $STACK_NAME"
 
           aws cloudformation deploy \
             --template-file cloudformation/infrastructure.yml \
-            --stack-name "$FIXED_STACK_NAME" \
-            --capabilities CAPABILITY_NAMED_IAM \
-            --region "$AWS_REGION" \
+            --stack-name "$STACK_NAME" \
             --parameter-overrides \
               Environment=prod \
-              ProjectName="$DYNAMIC_PROJECT_NAME" \
+              ProjectName="$PROJECT_NAME" \
               CreativeDriveApiKey="${{ secrets.CREATIVEDRIVE_API_KEY }}" \
               BynderClientId="${{ secrets.BYNDER_CLIENT_ID }}" \
               BynderClientSecret="${{ secrets.BYNDER_CLIENT_SECRET }}" \
               BynderAccessTokenUrl="${{ secrets.BYNDER_ACCESS_TOKEN_URL }}" \
               BynderApiBaseUrl="${{ secrets.BYNDER_API_BASE_URL }}" \
               LambdaZipBucket="$LAMBDA_BUCKET" \
-              LambdaZipKey="$LAMBDA_ZIP_KEY"
+              LambdaZipKey="$S3_KEY" \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --region "$AWS_REGION" \
+            --no-fail-on-empty-changeset
 
           DEPLOY_STATUS=$?
+
           if [ $DEPLOY_STATUS -ne 0 ]; then
             echo "Deployment failed."
+
             aws cloudformation describe-stack-events \
-              --stack-name "$FIXED_STACK_NAME" \
+              --stack-name "$STACK_NAME" \
               --region "$AWS_REGION" \
               --max-items 30 \
-              --query "StackEvents[?ResourceStatus=='CREATE_FAILED'].{Time:Timestamp, ResourceType:ResourceType, LogicalId:LogicalResourceId, StatusReason:ResourceStatusReason}" \
-              --output json
+              --output table
+
             exit $DEPLOY_STATUS
           fi
 
+          echo "=========================================="
+          echo "CloudFormation Stack Outputs"
+          echo "=========================================="
+
+          aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
+            --output table
+
+          echo ""
           echo "Deployment completed successfully!"
+          echo ""
