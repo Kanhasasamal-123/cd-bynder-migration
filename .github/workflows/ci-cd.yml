@@ -11,7 +11,7 @@ env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
   STACK_NAME: dam-migration
   PROJECT_NAME: dam-migration
-  LAMBDA_BUCKET: cd-bynder-migration-lambda-676480496045
+  LAMBDA_BUCKET: cd-bynder-migration-lambda-676480496045-us-east-1
   LAMBDA_ZIP_KEY: lambda-deployment.zip
 
 jobs:
@@ -70,14 +70,19 @@ jobs:
           else
             echo "Creating S3 bucket: $LAMBDA_BUCKET"
 
-            aws s3api create-bucket \
-              --bucket "$LAMBDA_BUCKET" \
-              --region "$AWS_REGION" \
-              --create-bucket-configuration LocationConstraint="$AWS_REGION"
+            if [ "$AWS_REGION" = "us-east-1" ]; then
+              aws s3api create-bucket \
+                --bucket "$LAMBDA_BUCKET"
+            else
+              aws s3api create-bucket \
+                --bucket "$LAMBDA_BUCKET" \
+                --region "$AWS_REGION" \
+                --create-bucket-configuration LocationConstraint="$AWS_REGION"
+            fi
 
             echo "S3 bucket created successfully"
           fi
-
+          
       - name: Enable S3 bucket versioning
         run: |
           aws s3api put-bucket-versioning \
@@ -180,4 +185,3 @@ jobs:
           echo ""
           echo "Deployment completed successfully!"
           echo ""
-          
