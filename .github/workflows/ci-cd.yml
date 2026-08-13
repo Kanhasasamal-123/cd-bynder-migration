@@ -136,8 +136,8 @@ jobs:
 
           echo "Applying pipeline patches..."
 
-          # sed -i '/- AttributeName: createdAt/{N;d;}' cloudformation/infrastructure.yml
-          # sed -i '/ReservedConcurrentExecutions:/d' cloudformation/infrastructure.yml
+          sed -i '/- AttributeName: createdAt/{N;d;}' cloudformation/infrastructure.yml
+          sed -i '/ReservedConcurrentExecutions:/d' cloudformation/infrastructure.yml
 
           echo "Deploying CloudFormation stack: $STACK_NAME"
 
