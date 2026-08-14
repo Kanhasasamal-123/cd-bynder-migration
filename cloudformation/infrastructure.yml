@@ -288,7 +288,7 @@ Resources:
       Role: !GetAtt ProcessorLambdaRole.Arn
       Timeout: 300
       MemorySize: 1024
-      # ReservedConcurrentExecutions: 7 #M
+      ReservedConcurrentExecutions: 10 #M
       Code:
         S3Bucket: !Ref LambdaZipBucket
         S3Key: !Ref LambdaZipKey
@@ -306,7 +306,7 @@ Resources:
           Value: !Ref ProjectName
 
   # Event Source Mapping: DynamoDB Stream to Processor Lambda
-  ProcessorEventSourceMapping: #M
+  ProcessorEventSourceMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
       EventSourceArn: !GetAtt MigrationTrackerTable.StreamArn
