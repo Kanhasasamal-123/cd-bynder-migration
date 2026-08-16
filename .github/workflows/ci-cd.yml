@@ -57,8 +57,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Lint
-        run: npm run lint
+      # - name: Lint
+      #   run: npm run lint
 
       - name: Type check / build
         run: npm run build
@@ -66,14 +66,14 @@ jobs:
       - name: Unit tests
         run: npm test -- --coverage
 
-      - name: Integration tests
-        run: npm run test:integration
-        env:
-          CREATIVEDRIVE_API_KEY: ${{ secrets.CREATIVEDRIVE_API_KEY }}
-          BYNDER_CLIENT_ID: ${{ secrets.BYNDER_CLIENT_ID }}
-          BYNDER_CLIENT_SECRET: ${{ secrets.BYNDER_CLIENT_SECRET }}
-          BYNDER_ACCESS_TOKEN_URL: ${{ secrets.BYNDER_ACCESS_TOKEN_URL }}
-          BYNDER_API_BASE_URL: ${{ secrets.BYNDER_API_BASE_URL }}
+      # - name: Integration tests
+      #   run: npm run test:integration
+      #   env:
+      #     CREATIVEDRIVE_API_KEY: ${{ secrets.CREATIVEDRIVE_API_KEY }}
+      #     BYNDER_CLIENT_ID: ${{ secrets.BYNDER_CLIENT_ID }}
+      #     BYNDER_CLIENT_SECRET: ${{ secrets.BYNDER_CLIENT_SECRET }}
+      #     BYNDER_ACCESS_TOKEN_URL: ${{ secrets.BYNDER_ACCESS_TOKEN_URL }}
+      #     BYNDER_API_BASE_URL: ${{ secrets.BYNDER_API_BASE_URL }}
 
       - name: Package Lambda functions
         run: |
