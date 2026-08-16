@@ -37,7 +37,6 @@ on:
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
   STACK_NAME: dam-migration-prod
-  LAMBDA_ZIP_BUCKET: dam-migration-lambda-packages
   LAMBDA_ZIP_KEY: lambda-deployment.zip
 
 jobs:
@@ -108,8 +107,16 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
+      - name: Derive unique Lambda package bucket name
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "LAMBDA_ZIP_BUCKET=dam-migration-lambda-packages-${ACCOUNT_ID}" >> "$GITHUB_ENV"
+
       - name: Ensure Lambda package S3 bucket exists
         run: |
+          # head-bucket only succeeds if the bucket exists AND you own it.
+          # A 4xx here means "doesn't exist" or "owned by someone else" -
+          # since the name above is account-scoped, it's safe to create.
           if ! aws s3api head-bucket --bucket "${LAMBDA_ZIP_BUCKET}" 2>/dev/null; then
             aws s3 mb "s3://${LAMBDA_ZIP_BUCKET}" --region "${AWS_REGION}"
             aws s3api put-public-access-block \
