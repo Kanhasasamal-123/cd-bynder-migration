@@ -9,7 +9,7 @@ on:
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
-  STACK_NAME: dam-migration-prod-${{ github.run_id }}
+  STACK_NAME: dam-migration-prod
   PROJECT_NAME: dam-migration
   LAMBDA_BUCKET: cd-bynder-migration-lambda-676480496045
   LAMBDA_ZIP_KEY: lambda-deployment.zip
