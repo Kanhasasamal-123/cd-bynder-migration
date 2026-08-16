@@ -10,7 +10,7 @@ on:
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
   STACK_NAME: dam-migration-prod-${{ github.run_id }}
-  PROJECT_NAME: dam-migration
+  # PROJECT_NAME: dam-migration
   LAMBDA_BUCKET: cd-bynder-migration-lambda-676480496045
   LAMBDA_ZIP_KEY: lambda-deployment.zip
 
@@ -117,8 +117,8 @@ jobs:
         run: |
           set +e
 
-          # RANDOM_SUFFIX=$(shuf -i 1000-9999 -n 1)
-          # DYNAMIC_PROJECT_NAME="dam-mig-${RANDOM_SUFFIX}"
+          RANDOM_SUFFIX=$(shuf -i 1000-9999 -n 1)
+          DYNAMIC_PROJECT_NAME="dam-mig-${RANDOM_SUFFIX}"
 
           echo "Applying pipeline patches..."
 
@@ -131,7 +131,7 @@ jobs:
             --region "$AWS_REGION" \
             --parameter-overrides \
               Environment=prod \
-              ProjectName="$PROJECT_NAME" \
+              ProjectName="$DYNAMIC_PROJECT_NAME" \
               CreativeDriveApiKey="${{ secrets.CREATIVEDRIVE_API_KEY }}" \
               BynderClientId="${{ secrets.BYNDER_CLIENT_ID }}" \
               BynderClientSecret="${{ secrets.BYNDER_CLIENT_SECRET }}" \
