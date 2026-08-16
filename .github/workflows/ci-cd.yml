@@ -1,155 +1,169 @@
-name: DAM Migration Deployment
+name: DAM Migration - Build, Test & Deploy
 
 on:
   push:
-    branches:
-      - main
-
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      maxAssets:
+        description: 'Max number of assets to migrate'
+        required: false
+        default: '50'
+        type: string
+      mode:
+        description: 'Migration mode'
+        required: false
+        default: 'delta'
+        type: choice
+        options:
+          - delta
+          - full
+      folderNames:
+        description: 'Optional comma-separated FOLDER_NAMES filter'
+        required: false
+        default: ''
+        type: string
+      assetIds:
+        description: 'Optional comma-separated ASSET_IDS filter'
+        required: false
+        default: ''
+        type: string
+      invokeIngest:
+        description: 'Invoke the Ingest Lambda after deploy'
+        required: false
+        default: false
+        type: boolean
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
-  STACK_NAME: dam-migration-prod-${{ github.run_id }}
-  PROJECT_NAME: dam-migration-${{ github.run_id }}
-  LAMBDA_BUCKET: cd-bynder-migration-lambda-676480496045
+  STACK_NAME: dam-migration-prod
+  LAMBDA_ZIP_BUCKET: dam-migration-lambda-packages
   LAMBDA_ZIP_KEY: lambda-deployment.zip
 
 jobs:
-  build-test-deploy:
+  build-test:
+    name: Build & Test
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
+          node-version: '20.x'
+          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Build TypeScript
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check / build
         run: npm run build
 
-      - name: Run tests
-        run: npm test
+      - name: Unit tests
+        run: npm test -- --coverage
 
-      - name: Package Lambda
-        shell: bash
+      - name: Integration tests
+        run: npm run test:integration
+        env:
+          CREATIVEDRIVE_API_KEY: ${{ secrets.CREATIVEDRIVE_API_KEY }}
+          BYNDER_CLIENT_ID: ${{ secrets.BYNDER_CLIENT_ID }}
+          BYNDER_CLIENT_SECRET: ${{ secrets.BYNDER_CLIENT_SECRET }}
+          BYNDER_ACCESS_TOKEN_URL: ${{ secrets.BYNDER_ACCESS_TOKEN_URL }}
+          BYNDER_API_BASE_URL: ${{ secrets.BYNDER_API_BASE_URL }}
+
+      - name: Package Lambda functions
         run: |
-          rm -f lambda-deployment.zip
-
-          cd dist
+          mkdir -p dist_package
+          cp -r dist/. dist_package/
+          cp -r node_modules dist_package/
+          cd dist_package
           zip -r ../lambda-deployment.zip .
-          cd ..
 
-          zip -r lambda-deployment.zip node_modules
+      - name: Upload Lambda package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lambda-deployment
+          path: lambda-deployment.zip
+          retention-days: 7
 
-          ls -lh lambda-deployment.zip
+  deploy:
+    name: Deploy Infrastructure
+    needs: build-test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Lambda package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: lambda-deployment
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Verify AWS configuration
+      - name: Ensure Lambda package S3 bucket exists
         run: |
-          echo "AWS Region: $AWS_REGION"
-          aws sts get-caller-identity
-
-      - name: Create or verify S3 bucket
-        shell: bash
-        run: |
-          if aws s3api head-bucket --bucket "$LAMBDA_BUCKET" 2>/dev/null; then
-            echo "S3 bucket already exists. Using: $LAMBDA_BUCKET"
-          else
-            echo "S3 bucket does not exist. Creating: $LAMBDA_BUCKET"
-
-            aws s3api create-bucket \
-              --bucket "$LAMBDA_BUCKET" \
-              --region "$AWS_REGION" \
-              --create-bucket-configuration LocationConstraint="$AWS_REGION"
-
-            echo "S3 bucket created successfully: $LAMBDA_BUCKET"
+          if ! aws s3api head-bucket --bucket "${LAMBDA_ZIP_BUCKET}" 2>/dev/null; then
+            aws s3 mb "s3://${LAMBDA_ZIP_BUCKET}" --region "${AWS_REGION}"
+            aws s3api put-public-access-block \
+              --bucket "${LAMBDA_ZIP_BUCKET}" \
+              --public-access-block-configuration \
+                BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
           fi
-          
-      - name: Enable S3 bucket versioning
+
+      - name: Upload Lambda package to S3
         run: |
-          aws s3api put-bucket-versioning \
-            --bucket "$LAMBDA_BUCKET" \
-            --versioning-configuration Status=Enabled
+          aws s3 cp lambda-deployment.zip "s3://${LAMBDA_ZIP_BUCKET}/${LAMBDA_ZIP_KEY}"
 
-      - name: Block public access
+      - name: Deploy CloudFormation stack
         run: |
-          aws s3api put-public-access-block \
-            --bucket "$LAMBDA_BUCKET" \
-            --public-access-block-configuration \
-              BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
-
-      - name: Upload Lambda package
-        run: |
-          aws s3 cp \
-            lambda-deployment.zip \
-            "s3://${LAMBDA_BUCKET}/${LAMBDA_ZIP_KEY}"
-
-      - name: Verify Lambda package
-        run: |
-          aws s3api head-object \
-            --bucket "$LAMBDA_BUCKET" \
-            --key "$LAMBDA_ZIP_KEY"
-
-      - name: Verify CloudFormation template
-        run: |
-          pwd
-          ls -la
-          ls -la cloudformation
-          test -f cloudformation/infrastructure.yml
-          echo "CloudFormation template found successfully"
-          echo "$AWS_REGION"
-
-      - name: Deploy CloudFormation
-        shell: bash
-        run: |
-          set +e
-
-          # RANDOM_SUFFIX=$(shuf -i 1000-9999 -n 1)
-          # DYNAMIC_PROJECT_NAME="dam-mig-${RANDOM_SUFFIX}"
-
-          echo "Applying pipeline patches..."
-
-          echo "Deploying infrastructure blueprint to stack: $STACK_NAME..."
-
           aws cloudformation deploy \
             --template-file cloudformation/infrastructure.yml \
-            --stack-name "$STACK_NAME" \
-            --capabilities CAPABILITY_NAMED_IAM \
-            --region "$AWS_REGION" \
+            --stack-name "${STACK_NAME}" \
             --parameter-overrides \
               Environment=prod \
-              ProjectName="$PROJECT_NAME" \
+              ProjectName=dam-migration \
               CreativeDriveApiKey="${{ secrets.CREATIVEDRIVE_API_KEY }}" \
               BynderClientId="${{ secrets.BYNDER_CLIENT_ID }}" \
               BynderClientSecret="${{ secrets.BYNDER_CLIENT_SECRET }}" \
               BynderAccessTokenUrl="${{ secrets.BYNDER_ACCESS_TOKEN_URL }}" \
               BynderApiBaseUrl="${{ secrets.BYNDER_API_BASE_URL }}" \
-              LambdaZipBucket="$LAMBDA_BUCKET" \
-              LambdaZipKey="$LAMBDA_ZIP_KEY"
+              LambdaZipBucket="${LAMBDA_ZIP_BUCKET}" \
+              LambdaZipKey="${LAMBDA_ZIP_KEY}" \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --region "${AWS_REGION}" \
+            --no-fail-on-empty-changeset
 
-          DEPLOY_STATUS=$?
-          if [ $DEPLOY_STATUS -ne 0 ]; then
-            echo "Deployment failed."
-            aws cloudformation describe-stack-events \
-              --stack-name "$STACK_NAME" \
-              --region "$AWS_REGION" \
-              --max-items 30 \
-              --query "StackEvents[?ResourceStatus=='CREATE_FAILED'].{Time:Timestamp, ResourceType:ResourceType, LogicalId:LogicalResourceId, StatusReason:ResourceStatusReason}" \
-              --output json
-            exit $DEPLOY_STATUS
-          fi
+      - name: Invoke Ingest Lambda (manual dispatch only)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.invokeIngest == 'true'
+        run: |
+          PAYLOAD=$(jq -n \
+            --arg maxAssets "${{ github.event.inputs.maxAssets }}" \
+            --arg mode "${{ github.event.inputs.mode }}" \
+            --arg folderNames "${{ github.event.inputs.folderNames }}" \
+            --arg assetIds "${{ github.event.inputs.assetIds }}" \
+            '{maxAssets: ($maxAssets | tonumber), mode: $mode, folderNames: ($folderNames | select(length > 0) // null), assetIds: ($assetIds | select(length > 0) // null)}')
+          echo "Invoking with payload: ${PAYLOAD}"
+          aws lambda invoke \
+            --function-name dam-migration-ingest-prod \
+            --payload "$(echo "$PAYLOAD" | base64)" \
+            --cli-binary-format raw-in-base64-out \
+            response.json
+          cat response.json
 
-          echo "Deployment completed successfully!"
+      - name: Upload ingest response
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.invokeIngest == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ingest-response
+          path: response.json
