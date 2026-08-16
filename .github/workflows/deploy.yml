@@ -1,0 +1,166 @@
+name: DAM Migration - Build, Test & Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      maxAssets:
+        description: 'Max number of assets to migrate'
+        required: false
+        default: '50'
+        type: string
+      mode:
+        description: 'Migration mode'
+        required: false
+        default: 'delta'
+        type: choice
+        options:
+          - delta
+          - full
+      folderNames:
+        description: 'Optional comma-separated FOLDER_NAMES filter'
+        required: false
+        default: ''
+        type: string
+      assetIds:
+        description: 'Optional comma-separated ASSET_IDS filter'
+        required: false
+        default: ''
+        type: string
+      invokeIngest:
+        description: 'Invoke the Ingest Lambda after deploy'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  STACK_NAME: dam-migration-prod
+  LAMBDA_ZIP_BUCKET: dam-migration-lambda-packages
+  LAMBDA_ZIP_KEY: lambda-deployment.zip
+
+jobs:
+  build-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check / build
+        run: npm run build
+
+      - name: Unit tests
+        run: npm test -- --coverage
+
+      # - name: Integration tests
+      #   run: npm run test:integration
+      #   env:
+      #     CREATIVEDRIVE_API_KEY: ${{ secrets.CREATIVEDRIVE_API_KEY }}
+      #     BYNDER_CLIENT_ID: ${{ secrets.BYNDER_CLIENT_ID }}
+      #     BYNDER_CLIENT_SECRET: ${{ secrets.BYNDER_CLIENT_SECRET }}
+      #     BYNDER_ACCESS_TOKEN_URL: ${{ secrets.BYNDER_ACCESS_TOKEN_URL }}
+      #     BYNDER_API_BASE_URL: ${{ secrets.BYNDER_API_BASE_URL }}
+
+      - name: Package Lambda functions
+        run: |
+          mkdir -p dist_package
+          cp -r dist/. dist_package/
+          cp -r node_modules dist_package/
+          cd dist_package
+          zip -r ../lambda-deployment.zip .
+
+      - name: Upload Lambda package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lambda-deployment
+          path: lambda-deployment.zip
+          retention-days: 7
+
+  deploy:
+    name: Deploy Infrastructure
+    needs: build-test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Lambda package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: lambda-deployment
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Ensure Lambda package S3 bucket exists
+        run: |
+          if ! aws s3api head-bucket --bucket "${LAMBDA_ZIP_BUCKET}" 2>/dev/null; then
+            aws s3 mb "s3://${LAMBDA_ZIP_BUCKET}" --region "${AWS_REGION}"
+            aws s3api put-public-access-block \
+              --bucket "${LAMBDA_ZIP_BUCKET}" \
+              --public-access-block-configuration \
+                BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+          fi
+
+      - name: Upload Lambda package to S3
+        run: |
+          aws s3 cp lambda-deployment.zip "s3://${LAMBDA_ZIP_BUCKET}/${LAMBDA_ZIP_KEY}"
+
+      - name: Deploy CloudFormation stack
+        run: |
+          aws cloudformation deploy \
+            --template-file cloudformation/infrastructure.yml \
+            --stack-name "${STACK_NAME}" \
+            --parameter-overrides \
+              Environment=prod \
+              ProjectName=dam-migration \
+              CreativeDriveApiKey="${{ secrets.CREATIVEDRIVE_API_KEY }}" \
+              BynderClientId="${{ secrets.BYNDER_CLIENT_ID }}" \
+              BynderClientSecret="${{ secrets.BYNDER_CLIENT_SECRET }}" \
+              BynderAccessTokenUrl="${{ secrets.BYNDER_ACCESS_TOKEN_URL }}" \
+              BynderApiBaseUrl="${{ secrets.BYNDER_API_BASE_URL }}" \
+              LambdaZipBucket="${LAMBDA_ZIP_BUCKET}" \
+              LambdaZipKey="${LAMBDA_ZIP_KEY}" \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --region "${AWS_REGION}" \
+            --no-fail-on-empty-changeset
+
+      - name: Invoke Ingest Lambda (manual dispatch only)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.invokeIngest == 'true'
+        run: |
+          PAYLOAD=$(jq -n \
+            --arg maxAssets "${{ github.event.inputs.maxAssets }}" \
+            --arg mode "${{ github.event.inputs.mode }}" \
+            --arg folderNames "${{ github.event.inputs.folderNames }}" \
+            --arg assetIds "${{ github.event.inputs.assetIds }}" \
+            '{maxAssets: ($maxAssets | tonumber), mode: $mode, folderNames: ($folderNames | select(length > 0) // null), assetIds: ($assetIds | select(length > 0) // null)}')
+          echo "Invoking with payload: ${PAYLOAD}"
+          aws lambda invoke \
+            --function-name dam-migration-ingest-prod \
+            --payload "$(echo "$PAYLOAD" | base64)" \
+            --cli-binary-format raw-in-base64-out \
+            response.json
+          cat response.json
+
+      - name: Upload ingest response
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.invokeIngest == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ingest-response
+          path: response.json
