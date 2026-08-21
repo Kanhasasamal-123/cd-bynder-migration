@@ -1,0 +1,349 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'DAM Migration Infrastructure - CreativeDrive to Bynder'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+    Description: Environment name (e.g., dev, staging, prod)
+
+  ProjectName:
+    Type: String
+    Default: dam-migration
+    Description: Project name for resource naming
+
+  CreativeDriveApiKey:
+    Type: String
+    NoEcho: true
+    Description: CreativeDrive API Key
+
+  BynderClientId:
+    Type: String
+    NoEcho: true
+    Description: Bynder OAuth Client ID
+
+  BynderClientSecret:
+    Type: String
+    NoEcho: true
+    Description: Bynder OAuth Client Secret
+
+  BynderAccessTokenUrl:
+    Type: String
+    Description: Bynder OAuth Access Token URL
+
+  BynderApiBaseUrl:
+    Type: String
+    Description: Bynder API Base URL
+
+  LambdaZipBucket:
+    Type: String
+    Description: S3 bucket containing the Lambda deployment package
+
+  LambdaZipKey:
+    Type: String
+    Default: lambda-deployment.zip
+    Description: S3 key for the Lambda deployment package
+
+Resources:
+  # S3 Bucket for temporary asset storage
+  MigrationAssetsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${ProjectName}-assets-${Environment}'
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Name
+          Value: Migration Assets Bucket
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # DynamoDB Table for migration tracking
+  MigrationTrackerTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectName}-tracker-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: creativeDriveAssetId
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+        - AttributeName: createdAt
+          AttributeType: S
+      KeySchema:
+        - AttributeName: creativeDriveAssetId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: StatusIndex
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      StreamSpecification:
+        StreamViewType: NEW_IMAGE
+      Tags:
+        - Key: Name
+          Value: Migration Tracker Table
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # Secrets Manager for CreativeDrive API credentials
+  CreativeDriveSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub '${ProjectName}-creativedrive-${Environment}'
+      Description: CreativeDrive API Key
+      SecretString: !Sub
+        - |
+          {
+            "apiKey": "${ApiKey}"
+          }
+        - ApiKey: !Ref CreativeDriveApiKey
+      Tags:
+        - Key: Name
+          Value: CreativeDrive Credentials
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # Secrets Manager for Bynder OAuth credentials
+  BynderSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub '${ProjectName}-bynder-${Environment}'
+      Description: Bynder OAuth credentials
+      SecretString: !Sub
+        - |
+          {
+            "clientId": "${ClientId}",
+            "clientSecret": "${ClientSecret}",
+            "accessTokenUrl": "${AccessTokenUrl}",
+            "apiBaseUrl": "${ApiBaseUrl}"
+          }
+        - ClientId: !Ref BynderClientId
+          ClientSecret: !Ref BynderClientSecret
+          AccessTokenUrl: !Ref BynderAccessTokenUrl
+          ApiBaseUrl: !Ref BynderApiBaseUrl
+      Tags:
+        - Key: Name
+          Value: Bynder Credentials
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # CloudWatch Log Group for Ingest Lambda
+  IngestLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ProjectName}-ingest-${Environment}'
+      RetentionInDays: 14
+
+  # CloudWatch Log Group for Processor Lambda
+  ProcessorLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ProjectName}-processor-${Environment}'
+      RetentionInDays: 14
+
+
+  # IAM Role for Ingest Lambda
+  IngestLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-ingest-lambda-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: !Sub '${ProjectName}-ingest-lambda-policy-${Environment}'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:BatchGetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:GetItem
+                Resource: !GetAtt MigrationTrackerTable.Arn
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Ref CreativeDriveSecret
+      Tags:
+        - Key: Name
+          Value: Ingest Lambda Role
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # IAM Role for Processor Lambda
+  ProcessorLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-processor-lambda-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: !Sub '${ProjectName}-processor-lambda-policy-${Environment}'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:GetRecords
+                  - dynamodb:GetShardIterator
+                  - dynamodb:DescribeStream
+                  - dynamodb:ListStreams
+                Resource:
+                  - !GetAtt MigrationTrackerTable.Arn
+                  - !Sub '${MigrationTrackerTable.Arn}/stream/*'
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub '${MigrationAssetsBucket.Arn}/*'
+      Tags:
+        - Key: Name
+          Value: Processor Lambda Role
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+
+  # Lambda Function: CreativeDrive Ingest
+  IngestLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: IngestLambdaLogGroup
+    Properties:
+      FunctionName: !Sub '${ProjectName}-ingest-${Environment}'
+      Runtime: nodejs22.x
+      Handler: ingest.handler
+      Role: !GetAtt IngestLambdaRole.Arn
+      Timeout: 900
+      MemorySize: 512
+      Code:
+        S3Bucket: !Ref LambdaZipBucket
+        S3Key: !Ref LambdaZipKey
+      Environment:
+        Variables:
+          MIGRATION_TRACKER_TABLE: !Ref MigrationTrackerTable
+          CREATIVE_DRIVE_SECRET_NAME: !Ref CreativeDriveSecret
+      Tags:
+        - Key: Name
+          Value: CreativeDrive Ingest Lambda
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # Lambda Function: Asset Processor
+  ProcessorLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: ProcessorLambdaLogGroup
+    Properties:
+      FunctionName: !Sub '${ProjectName}-processor-${Environment}'
+      Runtime: nodejs22.x
+      Handler: S3-based-processor.handler
+      Role: !GetAtt ProcessorLambdaRole.Arn
+      Timeout: 900
+      MemorySize: 2048
+      # ReservedConcurrentExecutions: 7 #M
+      Code:
+        S3Bucket: !Ref LambdaZipBucket
+        S3Key: !Ref LambdaZipKey
+      Environment:
+        Variables:
+          MIGRATION_TRACKER_TABLE: !Ref MigrationTrackerTable
+          S3_BUCKET_NAME: !Ref MigrationAssetsBucket
+      Tags:
+        - Key: Name
+          Value: Asset Processor Lambda
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # Event Source Mapping: DynamoDB Stream to Processor Lambda
+  ProcessorEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !GetAtt MigrationTrackerTable.StreamArn
+      FunctionName: !Ref ProcessorLambda
+      StartingPosition: LATEST
+      BatchSize: 10
+      FilterCriteria:
+        Filters:
+          - Pattern: '{"eventName":["INSERT","MODIFY"],"dynamodb":{"NewImage":{"status":{"S":["PENDING"]}}}}'
+
+  # EventBridge schedule for Sync Lambda
+
+Outputs:
+  MigrationAssetsBucketName:
+    Description: Name of the S3 bucket for migration assets
+    Value: !Ref MigrationAssetsBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-AssetsBucket'
+
+  MigrationTrackerTableName:
+    Description: Name of the DynamoDB table for migration tracking
+    Value: !Ref MigrationTrackerTable
+    Export:
+      Name: !Sub '${AWS::StackName}-TrackerTable'
+
+  IngestLambdaArn:
+    Description: ARN of the Ingest Lambda function
+    Value: !GetAtt IngestLambda.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-IngestLambda'
+
+  ProcessorLambdaArn:
+    Description: ARN of the Processor Lambda function
+    Value: !GetAtt ProcessorLambda.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ProcessorLambda'
+
+
+  CreativeDriveSecretArn:
+    Description: ARN of the CreativeDrive credentials secret
+    Value: !Ref CreativeDriveSecret
+
+  BynderSecretArn:
+    Description: ARN of the Bynder credentials secret
+    Value: !Ref BynderSecret
