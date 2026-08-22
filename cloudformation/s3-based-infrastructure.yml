@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'DAM Migration Infrastructure - CreativeDrive to Bynder'
+Description: 'DAM Migration Infrastructure - CreativeDrive to S3'
 
 Parameters:
   Environment:
@@ -16,24 +16,6 @@ Parameters:
     Type: String
     NoEcho: true
     Description: CreativeDrive API Key
-
-  BynderClientId:
-    Type: String
-    NoEcho: true
-    Description: Bynder OAuth Client ID
-
-  BynderClientSecret:
-    Type: String
-    NoEcho: true
-    Description: Bynder OAuth Client Secret
-
-  BynderAccessTokenUrl:
-    Type: String
-    Description: Bynder OAuth Access Token URL
-
-  BynderApiBaseUrl:
-    Type: String
-    Description: Bynder API Base URL
 
   LambdaZipBucket:
     Type: String
@@ -119,32 +101,6 @@ Resources:
       Tags:
         - Key: Name
           Value: CreativeDrive Credentials
-        - Key: Environment
-          Value: !Ref Environment
-        - Key: Project
-          Value: !Ref ProjectName
-
-  # Secrets Manager for Bynder OAuth credentials
-  BynderSecret:
-    Type: AWS::SecretsManager::Secret
-    Properties:
-      Name: !Sub '${ProjectName}-bynder-${Environment}'
-      Description: Bynder OAuth credentials
-      SecretString: !Sub
-        - |
-          {
-            "clientId": "${ClientId}",
-            "clientSecret": "${ClientSecret}",
-            "accessTokenUrl": "${AccessTokenUrl}",
-            "apiBaseUrl": "${ApiBaseUrl}"
-          }
-        - ClientId: !Ref BynderClientId
-          ClientSecret: !Ref BynderClientSecret
-          AccessTokenUrl: !Ref BynderAccessTokenUrl
-          ApiBaseUrl: !Ref BynderApiBaseUrl
-      Tags:
-        - Key: Name
-          Value: Bynder Credentials
         - Key: Environment
           Value: !Ref Environment
         - Key: Project
@@ -340,11 +296,6 @@ Outputs:
     Export:
       Name: !Sub '${AWS::StackName}-ProcessorLambda'
 
-
   CreativeDriveSecretArn:
     Description: ARN of the CreativeDrive credentials secret
     Value: !Ref CreativeDriveSecret
-
-  BynderSecretArn:
-    Description: ARN of the Bynder credentials secret
-    Value: !Ref BynderSecret
