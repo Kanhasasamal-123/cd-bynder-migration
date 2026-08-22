@@ -280,10 +280,10 @@ Resources:
     Properties:
       FunctionName: !Sub '${ProjectName}-processor-${Environment}'
       Runtime: nodejs22.x
-      Handler: S3-based-processor.handler
+      Handler: processor.handler
       Role: !GetAtt ProcessorLambdaRole.Arn
-      Timeout: 900
-      MemorySize: 2048
+      Timeout: 300
+      MemorySize: 1024
       # ReservedConcurrentExecutions: 7 #M
       Code:
         S3Bucket: !Ref LambdaZipBucket
@@ -291,6 +291,7 @@ Resources:
       Environment:
         Variables:
           MIGRATION_TRACKER_TABLE: !Ref MigrationTrackerTable
+          MIGRATION_ASSETS_BUCKET: !Ref MigrationAssetsBucket
           S3_BUCKET_NAME: !Ref MigrationAssetsBucket
       Tags:
         - Key: Name
