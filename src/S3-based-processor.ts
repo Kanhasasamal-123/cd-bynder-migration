@@ -7,6 +7,10 @@ import {
   GetCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
+import {
+  SecretsManagerClient,
+  GetSecretValueCommand,
+} from '@aws-sdk/client-secrets-manager';
 
 import { CreativeDriveClient } from './lib/creativedrive-client';
 import {
@@ -17,6 +21,7 @@ import { AssetS3Client } from './lib/s3-client';
 
 const dynamoClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
+const secretsClient = new SecretsManagerClient({});
 
 const TABLE_NAME =
   process.env.MIGRATION_TRACKER_TABLE || '';
@@ -26,6 +31,15 @@ const S3_BUCKET_NAME =
 
 const AWS_REGION =
   process.env.AWS_REGION || 'ap-south-1';
+
+const SECRET_NAME =
+  process.env.CREATIVE_DRIVE_SECRET_NAME || '';
+
+/*
+ * Cache the resolved API key across warm invocations
+ * so we don't call Secrets Manager for every single asset.
+ */
+let cachedApiKey: string | null = null;
 
 interface MigrationRecord {
   creativeDriveAssetId: string;
@@ -47,6 +61,41 @@ interface MigrationRecord {
 
   errorMessage?: string;
   metadata: Record<string, string>;
+}
+
+/**
+ * Fetch and cache the CreativeDrive API key from Secrets Manager.
+ *
+ * Expects the secret to be stored as JSON:
+ *   { "apiKey": "..." }
+ */
+async function getCreativeDriveApiKey(): Promise<string> {
+  if (cachedApiKey) {
+    return cachedApiKey;
+  }
+
+  if (!SECRET_NAME) {
+    throw new Error(
+      'CREATIVE_DRIVE_SECRET_NAME environment variable is not configured'
+    );
+  }
+
+  const response = await secretsClient.send(
+    new GetSecretValueCommand({ SecretId: SECRET_NAME })
+  );
+
+  if (!response.SecretString) {
+    throw new Error('CreativeDrive secret has no SecretString value');
+  }
+
+  const parsed = JSON.parse(response.SecretString) as { apiKey: string };
+
+  if (!parsed.apiKey) {
+    throw new Error('CreativeDrive secret is missing "apiKey" field');
+  }
+
+  cachedApiKey = parsed.apiKey;
+  return cachedApiKey;
 }
 
 /**
@@ -188,16 +237,14 @@ async function processAsset(
 
     /*
      * Step 4:
-     * Create CreativeDrive client.
-     *
-     * IMPORTANT:
-     * Replace the empty API key with the existing
-     * CreativeDrive credential/Secrets Manager logic
-     * used by your project.
+     * Create CreativeDrive client using the API key
+     * resolved from Secrets Manager.
      */
+    const apiKey = await getCreativeDriveApiKey();
+
     const creativeDriveClient =
       new CreativeDriveClient({
-        apiKey: '',
+        apiKey,
       });
 
     /*

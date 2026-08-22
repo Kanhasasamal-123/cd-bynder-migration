@@ -194,6 +194,10 @@ Resources:
                   - s3:PutObject
                   - s3:GetObject
                 Resource: !Sub '${MigrationAssetsBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Ref CreativeDriveSecret
       Tags:
         - Key: Name
           Value: Processor Lambda Role
@@ -249,6 +253,7 @@ Resources:
           MIGRATION_TRACKER_TABLE: !Ref MigrationTrackerTable
           MIGRATION_ASSETS_BUCKET: !Ref MigrationAssetsBucket
           S3_BUCKET_NAME: !Ref MigrationAssetsBucket
+          CREATIVE_DRIVE_SECRET_NAME: !Ref CreativeDriveSecret
       Tags:
         - Key: Name
           Value: Asset Processor Lambda
