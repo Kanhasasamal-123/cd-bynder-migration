@@ -156,6 +156,7 @@ jobs:
               LambdaZipBucket="$LAMBDA_BUCKET" \
               LambdaZipKey="$LAMBDA_ZIP_KEY"
 
+
           DEPLOY_STATUS=$?
           if [ $DEPLOY_STATUS -ne 0 ]; then
             echo "Deployment failed."
