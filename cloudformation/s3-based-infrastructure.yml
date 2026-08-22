@@ -240,7 +240,7 @@ Resources:
       Role: !GetAtt ProcessorLambdaRole.Arn
       Timeout: 300
       MemorySize: 1024
-      # ReservedConcurrentExecutions: 7 #M
+      ReservedConcurrentExecutions: 7 #M
       Code:
         S3Bucket: !Ref LambdaZipBucket
         S3Key: !Ref LambdaZipKey
