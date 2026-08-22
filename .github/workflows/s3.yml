@@ -1,0 +1,152 @@
+# name: DAM Migration Deployment
+
+# on:
+#   push:
+#     branches:
+#       - main
+
+#   workflow_dispatch:
+
+# env:
+#   AWS_REGION: ${{ secrets.AWS_REGION }}
+#   STACK_NAME: dam-migration-prod-${{ github.run_id }}
+#   PROJECT_NAME: dam-migration-${{ github.run_id }}
+#   LAMBDA_BUCKET: cd-bynder-migration-lambda-676480496045
+#   LAMBDA_ZIP_KEY: lambda-deployment.zip
+
+# jobs:
+#   build-test-deploy:
+#     runs-on: ubuntu-latest
+
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+
+#       - name: Setup Node.js
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version: 20
+#           cache: npm
+
+#       - name: Install dependencies
+#         run: npm ci
+
+#       - name: Build TypeScript
+#         run: npm run build
+
+#       - name: Run tests
+#         run: npm test
+
+#       - name: Package Lambda
+#         shell: bash
+#         run: |
+#           rm -f lambda-deployment.zip
+
+#           cd dist
+#           zip -r ../lambda-deployment.zip .
+#           cd ..
+
+#           zip -r lambda-deployment.zip node_modules
+
+#           ls -lh lambda-deployment.zip
+
+#       - name: Configure AWS credentials
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           aws-region: ${{ env.AWS_REGION }}
+
+#       - name: Verify AWS configuration
+#         run: |
+#           echo "AWS Region: $AWS_REGION"
+#           aws sts get-caller-identity
+
+#       - name: Create or verify S3 bucket
+#         shell: bash
+#         run: |
+#           if aws s3api head-bucket --bucket "$LAMBDA_BUCKET" 2>/dev/null; then
+#             echo "S3 bucket already exists. Using: $LAMBDA_BUCKET"
+#           else
+#             echo "S3 bucket does not exist. Creating: $LAMBDA_BUCKET"
+
+#             aws s3api create-bucket \
+#               --bucket "$LAMBDA_BUCKET" \
+#               --region "$AWS_REGION" \
+#               --create-bucket-configuration LocationConstraint="$AWS_REGION"
+
+#             echo "S3 bucket created successfully: $LAMBDA_BUCKET"
+#           fi
+          
+#       - name: Enable S3 bucket versioning
+#         run: |
+#           aws s3api put-bucket-versioning \
+#             --bucket "$LAMBDA_BUCKET" \
+#             --versioning-configuration Status=Enabled
+
+#       - name: Block public access
+#         run: |
+#           aws s3api put-public-access-block \
+#             --bucket "$LAMBDA_BUCKET" \
+#             --public-access-block-configuration \
+#               BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+
+#       - name: Upload Lambda package
+#         run: |
+#           aws s3 cp \
+#             lambda-deployment.zip \
+#             "s3://${LAMBDA_BUCKET}/${LAMBDA_ZIP_KEY}"
+
+#       - name: Verify Lambda package
+#         run: |
+#           aws s3api head-object \
+#             --bucket "$LAMBDA_BUCKET" \
+#             --key "$LAMBDA_ZIP_KEY"
+
+#       - name: Verify CloudFormation template
+#         run: |
+#           pwd
+#           ls -la
+#           ls -la cloudformation
+#           test -f cloudformation/s3-based-infrastructure.yml
+#           echo "CloudFormation template found successfully"
+#           echo "$AWS_REGION"
+
+#       - name: Deploy CloudFormation
+#         shell: bash
+#         run: |
+#           set +e
+
+#           echo "Applying pipeline patches..."
+
+#           echo "Deploying infrastructure blueprint to stack: $STACK_NAME..."
+
+#           aws cloudformation deploy \
+#             --template-file cloudformation/s3-based-infrastructure.yml \
+#             --stack-name "$STACK_NAME" \
+#             --capabilities CAPABILITY_NAMED_IAM \
+#             --region "$AWS_REGION" \
+#             --parameter-overrides \
+#               Environment=prod \
+#               ProjectName="$PROJECT_NAME" \
+#               CreativeDriveApiKey="${{ secrets.CREATIVEDRIVE_API_KEY }}" \
+#               BynderClientId="${{ secrets.BYNDER_CLIENT_ID }}" \
+#               BynderClientSecret="${{ secrets.BYNDER_CLIENT_SECRET }}" \
+#               BynderAccessTokenUrl="${{ secrets.BYNDER_ACCESS_TOKEN_URL }}" \
+#               BynderApiBaseUrl="${{ secrets.BYNDER_API_BASE_URL }}" \
+#               LambdaZipBucket="$LAMBDA_BUCKET" \
+#               LambdaZipKey="$LAMBDA_ZIP_KEY"
+
+#           DEPLOY_STATUS=$?
+#           if [ $DEPLOY_STATUS -ne 0 ]; then
+#             echo "Deployment failed."
+#             aws cloudformation describe-stack-events \
+#               --stack-name "$STACK_NAME" \
+#               --region "$AWS_REGION" \
+#               --max-items 30 \
+#               --query "StackEvents[?ResourceStatus=='CREATE_FAILED'].{Time:Timestamp, ResourceType:ResourceType, LogicalId:LogicalResourceId, StatusReason:ResourceStatusReason}" \
+#               --output json
+#             exit $DEPLOY_STATUS
+#           fi
+
+#           echo "Deployment completed successfully!"
