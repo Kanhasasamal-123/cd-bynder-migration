@@ -240,7 +240,7 @@ Resources:
     Properties:
       FunctionName: !Sub '${ProjectName}-processor-${Environment}'
       Runtime: nodejs22.x
-      Handler: processor.handler
+      Handler: S3-based-processor.handler
       Role: !GetAtt ProcessorLambdaRole.Arn
       Timeout: 300
       MemorySize: 1024
