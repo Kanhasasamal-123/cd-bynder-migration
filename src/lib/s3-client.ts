@@ -4,10 +4,7 @@
  * Handles uploading migrated assets to the target Amazon S3 bucket.
  */
 
-import {
-  S3Client,
-  PutObjectCommand,
-} from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 
 export interface S3UploadResult {
   bucket: string;
@@ -16,8 +13,8 @@ export interface S3UploadResult {
 }
 
 export class AssetS3Client {
-  private readonly s3Client: S3Client;
-  private readonly bucketName: string;
+  private s3Client: S3Client;
+  private bucketName: string;
 
   constructor(bucketName: string, region: string) {
     if (!bucketName) {
@@ -29,48 +26,22 @@ export class AssetS3Client {
     }
 
     this.bucketName = bucketName;
-
-    this.s3Client = new S3Client({
-      region,
-    });
+    this.s3Client = new S3Client({ region });
   }
 
   /**
    * Upload an asset to the target S3 bucket.
-   *
-   * @param buffer Asset file content
-   * @param filename Original asset filename
-   * @param creativeDriveAssetId CreativeDrive asset ID
    */
-  async uploadFile(
-    buffer: Buffer,
-    filename: string,
-    creativeDriveAssetId: string
-  ): Promise<S3UploadResult> {
+  async uploadFile(buffer: Buffer, filename: string, creativeDriveAssetId: string): Promise<S3UploadResult> {
     if (!buffer || buffer.length === 0) {
-      throw new Error(
-        `Cannot upload empty asset: ${filename}`
-      );
+      throw new Error(`Cannot upload empty asset: ${filename}`);
     }
 
     if (!creativeDriveAssetId) {
-      throw new Error(
-        `CreativeDrive asset ID is required for: ${filename}`
-      );
+      throw new Error(`CreativeDrive asset ID is required for: ${filename}`);
     }
 
-    /*
-     * S3 object structure:
-     *
-     * bucket/
-     *   creativeDriveAssetId/
-     *     filename
-     *
-     * Example:
-     *
-     * 5138227/
-     *   MKJ8710-0710_8.tif
-     */
+    // S3 object structure: bucket/creativeDriveAssetId/filename (e.g. 5138227/MKJ8710-0710_8.tif)
     const key = `${creativeDriveAssetId}/${filename}`;
 
     console.log('Uploading asset to S3:', {
@@ -97,10 +68,6 @@ export class AssetS3Client {
       s3Uri,
     });
 
-    return {
-      bucket: this.bucketName,
-      key,
-      s3Uri,
-    };
+    return { bucket: this.bucketName, key, s3Uri };
   }
 }
