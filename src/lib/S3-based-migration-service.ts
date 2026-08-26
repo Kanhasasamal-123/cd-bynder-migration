@@ -4,8 +4,12 @@
  * Orchestrates the migration of assets from CreativeDrive to S3
  */
 
+import { DynamoDBDocumentClient, ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { CreativeDriveClient } from './creativedrive-client';
 import { AssetS3Client, S3UploadResult } from './s3-client';
+
+/** Division 76 contains grey-background assets. All other divisions are white-background. */
+const GREY_BACKGROUND_DIVISION_ID = '76';
 
 export interface MigrationResult {
   creativeDriveAssetId: string;
@@ -13,6 +17,10 @@ export interface MigrationResult {
   s3Bucket: string;
   s3Key: string;
   s3Uri: string;
+  aborted?: boolean;
+  abortReason?: string;
+  /** True when migration was skipped because the matched grey asset already has a companion file. */
+  skipped?: boolean;
 }
 
 export interface MigrationProgress {
@@ -27,6 +35,12 @@ export interface MigrationAsset {
   publicUrl: string;
   /** Retained for future use if metadata needs to be stored along with the S3 object. */
   metadata?: Record<string, string>;
+  /**
+   * When true, this (white-background) asset must be uploaded into the S3 folder
+   * of an already-migrated grey-background asset with matching style/color/angle.
+   * If no match is found, migration is aborted rather than uploaded standalone.
+   */
+  requiresExistingAsset?: boolean;
 }
 
 export interface MigrationOptions {
@@ -36,10 +50,94 @@ export interface MigrationOptions {
 export class S3MigrationService {
   private creativeDriveClient: CreativeDriveClient;
   private s3Client: AssetS3Client;
+  private docClient: DynamoDBDocumentClient;
+  private tableName: string;
 
-  constructor(creativeDriveClient: CreativeDriveClient, s3Client: AssetS3Client) {
+  constructor(
+    creativeDriveClient: CreativeDriveClient,
+    s3Client: AssetS3Client,
+    docClient: DynamoDBDocumentClient,
+    tableName: string
+  ) {
     this.creativeDriveClient = creativeDriveClient;
     this.s3Client = s3Client;
+    this.docClient = docClient;
+    this.tableName = tableName;
+  }
+
+  /**
+   * Extract Style_Number, color code, and angle code from a filename.
+   * Filename format: STYLE_NUMBER-COLOR_CODE_SUFFIX.ext (e.g., "49F5RMFS2B-0848_2.tif").
+   *
+   * Mirrors BynderClient.extractMetadataFromFilename so grey/white matching
+   * uses the same style/color/angle derivation on both destinations.
+   */
+  private extractMetadataFromFilename(filename: string): { styleNumber: string; colorCode: string; angleCode: string } {
+    const lastDashIndex = filename.lastIndexOf('-');
+    const underscoreIndex = filename.indexOf('_');
+    const dotIndex = filename.lastIndexOf('.');
+
+    if (lastDashIndex === -1) {
+      return { styleNumber: '', colorCode: '', angleCode: '' };
+    }
+
+    const styleNumber = filename.substring(0, lastDashIndex);
+
+    const colorCodeEndIndex = underscoreIndex !== -1 ? underscoreIndex : dotIndex;
+    const colorCode = colorCodeEndIndex !== -1
+      ? filename.substring(lastDashIndex + 1, colorCodeEndIndex)
+      : filename.substring(lastDashIndex + 1);
+
+    const angleCode = underscoreIndex !== -1 && dotIndex !== -1
+      ? filename.substring(underscoreIndex + 1, dotIndex)
+      : '';
+
+    return { styleNumber, colorCode, angleCode };
+  }
+
+  /**
+   * Scan DynamoDB for an already-uploaded grey-background (division 76) record
+   * whose filename-derived style/color/angle matches the given asset.
+   */
+  private async findMatchingGreyAsset(
+    styleNumber: string,
+    colorCode: string,
+    angleCode: string
+  ): Promise<string | null> {
+    const command = new ScanCommand({
+      TableName: this.tableName,
+      FilterExpression: '#status = :status AND #divisionId = :divisionId',
+      ExpressionAttributeNames: {
+        '#status': 'status',
+        '#divisionId': 'divisionId',
+      },
+      ExpressionAttributeValues: {
+        ':status': 'UPLOADED',
+        ':divisionId': GREY_BACKGROUND_DIVISION_ID,
+      },
+    });
+
+    const response = await this.docClient.send(command);
+    const items = response.Items || [];
+
+    for (const item of items) {
+      const candidateFilename = item.originalFilename as string | undefined;
+      if (!candidateFilename) {
+        continue;
+      }
+
+      const candidateMeta = this.extractMetadataFromFilename(candidateFilename);
+      const match =
+        candidateMeta.styleNumber === styleNumber &&
+        candidateMeta.colorCode === colorCode &&
+        candidateMeta.angleCode === angleCode;
+
+      if (match) {
+        return item.creativeDriveAssetId as string;
+      }
+    }
+
+    return null;
   }
 
   /**
@@ -64,6 +162,74 @@ export class S3MigrationService {
 
     if (!asset.publicUrl) {
       throw new Error(`CreativeDrive public URL is missing for asset: ${asset.creativeDriveAssetId}`);
+    }
+
+    // Always derive style/color/angle from filename
+    const { styleNumber, colorCode, angleCode } = this.extractMetadataFromFilename(asset.originalFilename);
+
+    // Destination folder in S3: the asset's own folder, unless it requires
+    // attaching to an existing grey-background asset's folder.
+    let targetFolderId = asset.creativeDriveAssetId;
+
+    if (asset.requiresExistingAsset) {
+      const matchedGreyAssetId = await this.findMatchingGreyAsset(styleNumber, colorCode, angleCode);
+
+      if (!matchedGreyAssetId) {
+        const abortReason =
+          'No matching grey-background asset found in S3/DynamoDB; white-background asset cannot be uploaded as a standalone new asset';
+
+        onProgress?.({
+          stage: 'abort',
+          message: abortReason,
+          details: { creativeDriveAssetId: asset.creativeDriveAssetId, filename: asset.originalFilename },
+        });
+
+        return {
+          creativeDriveAssetId: asset.creativeDriveAssetId,
+          filename: asset.originalFilename,
+          s3Bucket: '',
+          s3Key: '',
+          s3Uri: '',
+          aborted: true,
+          abortReason,
+        };
+      }
+
+      onProgress?.({
+        stage: 'match',
+        message: `Found existing grey-background asset ${matchedGreyAssetId}; will upload into its S3 folder`,
+        details: { styleNumber, colorCode, angleCode, matchedGreyAssetId },
+      });
+
+      // Each grey-background folder should have at most one companion (additional)
+      // file. Skip re-upload when the matched folder already has one.
+      const existingObjectCount = await this.s3Client.countObjectsInFolder(matchedGreyAssetId);
+
+      if (existingObjectCount >= 2) {
+        const s3Uri = `s3://${matchedGreyAssetId}/`;
+
+        onProgress?.({
+          stage: 'skip',
+          message: `Grey-background asset ${matchedGreyAssetId} already has a companion file; skipping upload`,
+          details: {
+            creativeDriveAssetId: asset.creativeDriveAssetId,
+            filename: asset.originalFilename,
+            matchedGreyAssetId,
+            existingObjectCount,
+          },
+        });
+
+        return {
+          creativeDriveAssetId: asset.creativeDriveAssetId,
+          filename: asset.originalFilename,
+          s3Bucket: '',
+          s3Key: `${matchedGreyAssetId}/`,
+          s3Uri,
+          skipped: true,
+        };
+      }
+
+      targetFolderId = matchedGreyAssetId;
     }
 
     onProgress?.({
@@ -95,15 +261,17 @@ export class S3MigrationService {
         creativeDriveAssetId: asset.creativeDriveAssetId,
         filename: asset.originalFilename,
         size: buffer.length,
+        targetFolderId,
       },
     });
 
     // Step 2: Upload the downloaded file to S3
-    // S3 key structure: {creativeDriveAssetId}/{originalFilename} (e.g. 5138227/MKJ8710-0710_8.tif)
+    // S3 key structure: {targetFolderId}/{originalFilename} — targetFolderId is either
+    // this asset's own ID (standalone), or the matched grey asset's ID (attached).
     const s3Result: S3UploadResult = await this.s3Client.uploadFile(
       buffer,
       asset.originalFilename,
-      asset.creativeDriveAssetId
+      targetFolderId
     );
 
     onProgress?.({

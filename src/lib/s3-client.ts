@@ -4,7 +4,7 @@
  * Handles uploading migrated assets to the target Amazon S3 bucket.
  */
 
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 
 export interface S3UploadResult {
   bucket: string;
@@ -69,5 +69,21 @@ export class AssetS3Client {
     });
 
     return { bucket: this.bucketName, key, s3Uri };
+  }
+
+  /**
+   * Count objects already stored under a given asset's folder
+   * (bucket/creativeDriveAssetId/). Used to detect whether a
+   * grey-background asset already has a companion (additional) file
+   * attached, so a second white-background match can be skipped.
+   */
+  async countObjectsInFolder(creativeDriveAssetId: string): Promise<number> {
+    const command = new ListObjectsV2Command({
+      Bucket: this.bucketName,
+      Prefix: `${creativeDriveAssetId}/`,
+    });
+
+    const response = await this.s3Client.send(command);
+    return response.Contents?.length || 0;
   }
 }
