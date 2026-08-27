@@ -182,12 +182,15 @@ Resources:
                 Action:
                   - dynamodb:GetItem
                   - dynamodb:UpdateItem
+                  - dynamodb:Scan
+                  - dynamodb:Query
                   - dynamodb:GetRecords
                   - dynamodb:GetShardIterator
                   - dynamodb:DescribeStream
                   - dynamodb:ListStreams
                 Resource:
                   - !GetAtt MigrationTrackerTable.Arn
+                  - !Sub '${MigrationTrackerTable.Arn}/index/*'
                   - !Sub '${MigrationTrackerTable.Arn}/stream/*'
               - Effect: Allow
                 Action:
