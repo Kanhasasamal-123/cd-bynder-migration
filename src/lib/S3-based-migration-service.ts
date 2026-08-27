@@ -346,23 +346,35 @@ export class S3MigrationService {
       throw new Error(`Downloaded asset is empty: ${asset.creativeDriveAssetId}`);
     }
 
+    // When attaching to an existing grey-background asset's folder, the white
+    // asset's filename is (by construction of findMatchingGreyAsset's style/color/
+    // angle match) usually identical to the grey asset's own filename. Uploading
+    // under that same filename would silently overwrite the grey original at the
+    // same S3 key. Disambiguate companion uploads with a prefix so grey and white
+    // always land on distinct keys within the shared folder.
+    const uploadFilename = asset.requiresExistingAsset
+      ? `white_${asset.originalFilename}`
+      : asset.originalFilename;
+
     onProgress?.({
       stage: 'upload',
       message: 'Uploading asset to S3',
       details: {
         creativeDriveAssetId: asset.creativeDriveAssetId,
-        filename: asset.originalFilename,
+        filename: uploadFilename,
         size: buffer.length,
         targetFolderId,
       },
     });
 
     // Step 2: Upload the downloaded file to S3
-    // S3 key structure: {targetFolderId}/{originalFilename} — targetFolderId is either
+    // S3 key structure: {targetFolderId}/{uploadFilename} — targetFolderId is either
     // this asset's own ID (standalone), or the matched grey asset's ID (attached).
+    // uploadFilename is prefixed for companion (white) uploads to avoid colliding
+    // with the grey asset's own key in that same folder.
     const s3Result: S3UploadResult = await this.s3Client.uploadFile(
       buffer,
-      asset.originalFilename,
+      uploadFilename,
       targetFolderId
     );
 
