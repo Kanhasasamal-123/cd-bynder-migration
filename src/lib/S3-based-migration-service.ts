@@ -4,7 +4,8 @@
  * Orchestrates the migration of assets from CreativeDrive to S3
  */
 
-import { DynamoDBDocumentClient, ScanCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { ConditionalCheckFailedException } from '@aws-sdk/client-dynamodb';
 import { CreativeDriveClient } from './creativedrive-client';
 import { AssetS3Client, S3UploadResult } from './s3-client';
 
@@ -45,6 +46,13 @@ export interface MigrationAsset {
 
 export interface MigrationOptions {
   onProgress?: (progress: MigrationProgress) => void;
+}
+
+/** Result of scanning for a matching grey-background record. */
+interface MatchedGreyAsset {
+  creativeDriveAssetId: string;
+  /** Set once a white asset has claimed (or finished attaching to) this grey asset. */
+  companionAssetId?: string;
 }
 
 export class S3MigrationService {
@@ -98,46 +106,99 @@ export class S3MigrationService {
   /**
    * Scan DynamoDB for an already-uploaded grey-background (division 76) record
    * whose filename-derived style/color/angle matches the given asset.
+   *
+   * FIX 1: ConsistentRead is required here. Without it, a scan can hit a
+   * replica that hasn't yet caught up with a grey record's status flipping
+   * to UPLOADED moments earlier, causing a real match to be missed.
+   *
+   * FIX 2: Scan is paginated. A single ScanCommand call caps out at ~1MB of
+   * data; once the table grows past a few thousand rows, older grey records
+   * silently fall outside a single page and stop being matchable.
    */
   private async findMatchingGreyAsset(
     styleNumber: string,
     colorCode: string,
     angleCode: string
-  ): Promise<string | null> {
-    const command = new ScanCommand({
-      TableName: this.tableName,
-      FilterExpression: '#status = :status AND #divisionId = :divisionId',
-      ExpressionAttributeNames: {
-        '#status': 'status',
-        '#divisionId': 'divisionId',
-      },
-      ExpressionAttributeValues: {
-        ':status': 'UPLOADED',
-        ':divisionId': GREY_BACKGROUND_DIVISION_ID,
-      },
-    });
+  ): Promise<MatchedGreyAsset | null> {
+    let lastEvaluatedKey: Record<string, unknown> | undefined;
 
-    const response = await this.docClient.send(command);
-    const items = response.Items || [];
+    do {
+      const command = new ScanCommand({
+        TableName: this.tableName,
+        FilterExpression: '#status = :status AND #divisionId = :divisionId',
+        ExpressionAttributeNames: {
+          '#status': 'status',
+          '#divisionId': 'divisionId',
+        },
+        ExpressionAttributeValues: {
+          ':status': 'UPLOADED',
+          ':divisionId': GREY_BACKGROUND_DIVISION_ID,
+        },
+        ConsistentRead: true,
+        ExclusiveStartKey: lastEvaluatedKey,
+      });
 
-    for (const item of items) {
-      const candidateFilename = item.originalFilename as string | undefined;
-      if (!candidateFilename) {
-        continue;
+      const response = await this.docClient.send(command);
+      const items = response.Items || [];
+
+      for (const item of items) {
+        const candidateFilename = item.originalFilename as string | undefined;
+        if (!candidateFilename) {
+          continue;
+        }
+
+        const candidateMeta = this.extractMetadataFromFilename(candidateFilename);
+        const match =
+          candidateMeta.styleNumber === styleNumber &&
+          candidateMeta.colorCode === colorCode &&
+          candidateMeta.angleCode === angleCode;
+
+        if (match) {
+          return {
+            creativeDriveAssetId: item.creativeDriveAssetId as string,
+            companionAssetId: item.companionAssetId as string | undefined,
+          };
+        }
       }
 
-      const candidateMeta = this.extractMetadataFromFilename(candidateFilename);
-      const match =
-        candidateMeta.styleNumber === styleNumber &&
-        candidateMeta.colorCode === colorCode &&
-        candidateMeta.angleCode === angleCode;
-
-      if (match) {
-        return item.creativeDriveAssetId as string;
-      }
-    }
+      lastEvaluatedKey = response.LastEvaluatedKey as Record<string, unknown> | undefined;
+    } while (lastEvaluatedKey);
 
     return null;
+  }
+
+  /**
+   * Atomically claim a grey-background asset for a companion (white-background)
+   * upload, using a conditional write so only one white asset can ever win the
+   * attach even if two concurrent Lambda invocations match the same grey asset
+   * at the same time.
+   *
+   * FIX 3: replaces the old approach of counting objects already in the S3
+   * folder (`countObjectsInFolder(...) >= 2`) to decide whether to skip, which
+   * had a check-then-act race: two concurrent invocations could both read the
+   * same "1 object so far" count and both proceed to upload a companion file.
+   *
+   * Returns true if this call won the claim (proceed with upload), false if
+   * another asset already holds it (skip).
+   */
+  private async tryClaimGreyAsset(greyAssetId: string, whiteAssetId: string): Promise<boolean> {
+    try {
+      await this.docClient.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: { creativeDriveAssetId: greyAssetId },
+          UpdateExpression: 'SET companionAssetId = :whiteAssetId',
+          ConditionExpression: 'attribute_not_exists(companionAssetId)',
+          ExpressionAttributeValues: { ':whiteAssetId': whiteAssetId },
+        })
+      );
+      return true;
+    } catch (error) {
+      if (error instanceof ConditionalCheckFailedException) {
+        return false;
+      }
+      throw error;
+    }
   }
 
   /**
@@ -172,9 +233,9 @@ export class S3MigrationService {
     let targetFolderId = asset.creativeDriveAssetId;
 
     if (asset.requiresExistingAsset) {
-      const matchedGreyAssetId = await this.findMatchingGreyAsset(styleNumber, colorCode, angleCode);
+      const matchedGrey = await this.findMatchingGreyAsset(styleNumber, colorCode, angleCode);
 
-      if (!matchedGreyAssetId) {
+      if (!matchedGrey) {
         const abortReason =
           'No matching grey-background asset found in S3/DynamoDB; white-background asset cannot be uploaded as a standalone new asset';
 
@@ -195,6 +256,8 @@ export class S3MigrationService {
         };
       }
 
+      const { creativeDriveAssetId: matchedGreyAssetId, companionAssetId: existingCompanionId } = matchedGrey;
+
       onProgress?.({
         stage: 'match',
         message: `Found existing grey-background asset ${matchedGreyAssetId}; will upload into its S3 folder`,
@@ -202,20 +265,20 @@ export class S3MigrationService {
       });
 
       // Each grey-background folder should have at most one companion (additional)
-      // file. Skip re-upload when the matched folder already has one.
-      const existingObjectCount = await this.s3Client.countObjectsInFolder(matchedGreyAssetId);
-
-      if (existingObjectCount >= 2) {
+      // file. If a *different* white asset already claimed this grey asset, skip.
+      // If this same asset already claimed it (e.g. a retried invocation after a
+      // partial earlier failure), fall through and continue the upload.
+      if (existingCompanionId && existingCompanionId !== asset.creativeDriveAssetId) {
         const s3Uri = `s3://${matchedGreyAssetId}/`;
 
         onProgress?.({
           stage: 'skip',
-          message: `Grey-background asset ${matchedGreyAssetId} already has a companion file; skipping upload`,
+          message: `Grey-background asset ${matchedGreyAssetId} already has a companion file (${existingCompanionId}); skipping upload`,
           details: {
             creativeDriveAssetId: asset.creativeDriveAssetId,
             filename: asset.originalFilename,
             matchedGreyAssetId,
-            existingObjectCount,
+            existingCompanionId,
           },
         });
 
@@ -227,6 +290,35 @@ export class S3MigrationService {
           s3Uri,
           skipped: true,
         };
+      }
+
+      if (!existingCompanionId) {
+        const claimed = await this.tryClaimGreyAsset(matchedGreyAssetId, asset.creativeDriveAssetId);
+
+        if (!claimed) {
+          // Lost the race to another concurrent invocation that claimed this
+          // grey asset between our scan and our claim attempt.
+          const s3Uri = `s3://${matchedGreyAssetId}/`;
+
+          onProgress?.({
+            stage: 'skip',
+            message: `Grey-background asset ${matchedGreyAssetId} was claimed by another asset concurrently; skipping upload`,
+            details: {
+              creativeDriveAssetId: asset.creativeDriveAssetId,
+              filename: asset.originalFilename,
+              matchedGreyAssetId,
+            },
+          });
+
+          return {
+            creativeDriveAssetId: asset.creativeDriveAssetId,
+            filename: asset.originalFilename,
+            s3Bucket: '',
+            s3Key: `${matchedGreyAssetId}/`,
+            s3Uri,
+            skipped: true,
+          };
+        }
       }
 
       targetFolderId = matchedGreyAssetId;
