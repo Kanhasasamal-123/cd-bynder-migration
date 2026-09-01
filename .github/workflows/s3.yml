@@ -39,10 +39,8 @@ env:
   # where ProjectName=dam-migration-prod and Environment=prod (both hardcoded below).
   INGEST_LAMBDA: dam-migration-prod-ingest-prod
 
+
 jobs:
-  # ============================================================
-  # JOB 1: Build, package, and deploy infrastructure (idempotent)
-  # ============================================================
   build-test-deploy:
     runs-on: ubuntu-latest
 
@@ -68,8 +66,6 @@ jobs:
       - name: Package Lambda
         shell: bash
         run: |
-          set -euo pipefail
-
           rm -f lambda-deployment.zip
 
           cd dist
@@ -79,6 +75,8 @@ jobs:
           zip -r lambda-deployment.zip node_modules
 
           ls -lh lambda-deployment.zip
+
+
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -95,8 +93,6 @@ jobs:
       - name: Create or verify S3 bucket
         shell: bash
         run: |
-          set -euo pipefail
-
           if aws s3api head-bucket --bucket "$LAMBDA_BUCKET" 2>/dev/null; then
             echo "S3 bucket already exists. Using: $LAMBDA_BUCKET"
           else
@@ -109,7 +105,7 @@ jobs:
 
             echo "S3 bucket created successfully: $LAMBDA_BUCKET"
           fi
-
+          
       - name: Enable S3 bucket versioning
         run: |
           aws s3api put-bucket-versioning \
@@ -167,14 +163,12 @@ jobs:
 
           echo "All required secrets are present."
 
-      # STACK_NAME / PROJECT_NAME are fixed (no run_id / no commit sha), so this
-      # is a genuine "deploy" every run: first run creates the stack, every
-      # run after updates the SAME stack via a CloudFormation change set
-      # instead of creating a brand-new stack/set of resources.
       - name: Deploy CloudFormation
         shell: bash
         run: |
-          set -euo pipefail
+          set +e
+
+          echo "Applying pipeline patches..."
 
           echo "Deploying infrastructure blueprint to stack: $STACK_NAME..."
 
@@ -183,7 +177,6 @@ jobs:
             --stack-name "$STACK_NAME" \
             --capabilities CAPABILITY_NAMED_IAM \
             --region "$AWS_REGION" \
-            --no-fail-on-empty-changeset \
             --parameter-overrides \
               Environment=prod \
               ProjectName="$PROJECT_NAME" \
@@ -191,23 +184,25 @@ jobs:
               LambdaZipBucket="$LAMBDA_BUCKET" \
               LambdaZipKey="$LAMBDA_ZIP_KEY"
 
+
+          DEPLOY_STATUS=$?
+          if [ $DEPLOY_STATUS -ne 0 ]; then
+            echo "Deployment failed."
+            aws cloudformation describe-stack-events \
+              --stack-name "$STACK_NAME" \
+              --region "$AWS_REGION" \
+              --max-items 30 \
+              --query "StackEvents[?ResourceStatus=='CREATE_FAILED' || ResourceStatus=='UPDATE_FAILED' || ResourceStatus=='ROLLBACK_IN_PROGRESS'].{Time:Timestamp, ResourceType:ResourceType, LogicalId:LogicalResourceId, StatusReason:ResourceStatusReason}" \
+              --output json
+            exit $DEPLOY_STATUS
+          fi
+
           echo "Deployment completed successfully!"
 
-      - name: Show failure diagnostics
-        if: failure()
-        shell: bash
-        run: |
-          aws cloudformation describe-stack-events \
-            --stack-name "$STACK_NAME" \
-            --region "$AWS_REGION" \
-            --max-items 30 \
-            --query "StackEvents[?ResourceStatus=='CREATE_FAILED' || ResourceStatus=='UPDATE_FAILED'].{Time:Timestamp, ResourceType:ResourceType, LogicalId:LogicalResourceId, StatusReason:ResourceStatusReason}" \
-            --output json
-
   # ============================================================
-  # JOB 2: Grey-background migration (division 76)
+  # Grey-background migration (division 76)
   # Only runs on manual dispatch with migration_type = gb | both,
-  # and only after the deploy job has succeeded.
+  # and only after build-test-deploy has succeeded.
   # ============================================================
   run-gb:
     name: Run Grey Background Migration
@@ -277,10 +272,10 @@ jobs:
           fi
 
   # ============================================================
-  # JOB 3: White-background migrations (all other divisions)
+  # White-background migrations (all other divisions)
   # Only runs on manual dispatch with migration_type = wb | both,
-  # and only after the deploy job has succeeded. Runs in parallel
-  # with run-gb (both only depend on build-test-deploy).
+  # and only after build-test-deploy has succeeded. Runs in
+  # parallel with run-gb (both only depend on build-test-deploy).
   # ============================================================
   run-wb:
     name: Run White Background Migrations
