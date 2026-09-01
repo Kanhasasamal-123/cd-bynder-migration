@@ -26,8 +26,11 @@ on:
       dry_run:
         description: "Dry run (no writes to CreativeDrive/S3/DynamoDB)"
         required: true
-        type: boolean
-        default: true
+        type: choice
+        options:
+          - "true"
+          - "false"
+        default: "false"
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
