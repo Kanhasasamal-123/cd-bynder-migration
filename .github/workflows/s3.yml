@@ -248,7 +248,7 @@ jobs:
               maxAssets: $maxAssets,
               mode: "full",
               divisionId: $divisionId,
-              syncLastDays: 1,
+              syncLastDays: 3650,
               fetchSort: "desc",
               dryRun: $dryRun
             }')
@@ -327,7 +327,7 @@ jobs:
                 maxAssets: $maxAssets,
                 mode: "full",
                 divisionId: $divisionId,
-                syncLastDays: 1,
+                syncLastDays: 3650,
                 fetchSort: "desc",
                 dryRun: $dryRun
               }')
