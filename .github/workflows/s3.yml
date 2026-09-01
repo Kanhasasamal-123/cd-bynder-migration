@@ -6,6 +6,28 @@ on:
       - main
 
   workflow_dispatch:
+    inputs:
+      migration_type:
+        description: "Migration to run after deploy"
+        required: true
+        type: choice
+        options:
+          - none
+          - gb
+          - wb
+          - both
+        default: none
+
+      max_assets:
+        description: "Maximum assets per division"
+        required: true
+        default: "5000"
+
+      dry_run:
+        description: "Dry run (no writes to CreativeDrive/S3/DynamoDB)"
+        required: true
+        type: boolean
+        default: true
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
@@ -13,9 +35,14 @@ env:
   PROJECT_NAME: dam-migration-prod
   LAMBDA_BUCKET: cd-bynder-migration-lambda-676480496045
   LAMBDA_ZIP_KEY: lambda-deployment.zip
-
+  # Must match "${ProjectName}-ingest-${Environment}" from s3-based-infrastructure.yml,
+  # where ProjectName=dam-migration-prod and Environment=prod (both hardcoded below).
+  INGEST_LAMBDA: dam-migration-prod-ingest-prod
 
 jobs:
+  # ============================================================
+  # JOB 1: Build, package, and deploy infrastructure (idempotent)
+  # ============================================================
   build-test-deploy:
     runs-on: ubuntu-latest
 
@@ -41,6 +68,8 @@ jobs:
       - name: Package Lambda
         shell: bash
         run: |
+          set -euo pipefail
+
           rm -f lambda-deployment.zip
 
           cd dist
@@ -50,8 +79,6 @@ jobs:
           zip -r lambda-deployment.zip node_modules
 
           ls -lh lambda-deployment.zip
-
-
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -68,6 +95,8 @@ jobs:
       - name: Create or verify S3 bucket
         shell: bash
         run: |
+          set -euo pipefail
+
           if aws s3api head-bucket --bucket "$LAMBDA_BUCKET" 2>/dev/null; then
             echo "S3 bucket already exists. Using: $LAMBDA_BUCKET"
           else
@@ -80,7 +109,7 @@ jobs:
 
             echo "S3 bucket created successfully: $LAMBDA_BUCKET"
           fi
-          
+
       - name: Enable S3 bucket versioning
         run: |
           aws s3api put-bucket-versioning \
@@ -138,12 +167,14 @@ jobs:
 
           echo "All required secrets are present."
 
+      # STACK_NAME / PROJECT_NAME are fixed (no run_id / no commit sha), so this
+      # is a genuine "deploy" every run: first run creates the stack, every
+      # run after updates the SAME stack via a CloudFormation change set
+      # instead of creating a brand-new stack/set of resources.
       - name: Deploy CloudFormation
         shell: bash
         run: |
-          set +e
-
-          echo "Applying pipeline patches..."
+          set -euo pipefail
 
           echo "Deploying infrastructure blueprint to stack: $STACK_NAME..."
 
@@ -152,6 +183,7 @@ jobs:
             --stack-name "$STACK_NAME" \
             --capabilities CAPABILITY_NAMED_IAM \
             --region "$AWS_REGION" \
+            --no-fail-on-empty-changeset \
             --parameter-overrides \
               Environment=prod \
               ProjectName="$PROJECT_NAME" \
@@ -159,17 +191,170 @@ jobs:
               LambdaZipBucket="$LAMBDA_BUCKET" \
               LambdaZipKey="$LAMBDA_ZIP_KEY"
 
+          echo "Deployment completed successfully!"
 
-          DEPLOY_STATUS=$?
-          if [ $DEPLOY_STATUS -ne 0 ]; then
-            echo "Deployment failed."
-            aws cloudformation describe-stack-events \
-              --stack-name "$STACK_NAME" \
-              --region "$AWS_REGION" \
-              --max-items 30 \
-              --query "StackEvents[?ResourceStatus=='CREATE_FAILED'].{Time:Timestamp, ResourceType:ResourceType, LogicalId:LogicalResourceId, StatusReason:ResourceStatusReason}" \
-              --output json
-            exit $DEPLOY_STATUS
+      - name: Show failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          aws cloudformation describe-stack-events \
+            --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION" \
+            --max-items 30 \
+            --query "StackEvents[?ResourceStatus=='CREATE_FAILED' || ResourceStatus=='UPDATE_FAILED'].{Time:Timestamp, ResourceType:ResourceType, LogicalId:LogicalResourceId, StatusReason:ResourceStatusReason}" \
+            --output json
+
+  # ============================================================
+  # JOB 2: Grey-background migration (division 76)
+  # Only runs on manual dispatch with migration_type = gb | both,
+  # and only after the deploy job has succeeded.
+  # ============================================================
+  run-gb:
+    name: Run Grey Background Migration
+    needs: build-test-deploy
+    if: |
+      github.event_name == 'workflow_dispatch' &&
+      (inputs.migration_type == 'gb' || inputs.migration_type == 'both')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Invoke Ingest Lambda - GB (division 76)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          DIVISION_ID="76"
+          MAX_ASSETS="${{ inputs.max_assets }}"
+          DRY_RUN="${{ inputs.dry_run }}"
+
+          echo "=========================================="
+          echo "Grey Background Migration"
+          echo "=========================================="
+          echo "Lambda: $INGEST_LAMBDA"
+          echo "Division: $DIVISION_ID"
+          echo "Max Assets: $MAX_ASSETS"
+          echo "Dry Run: $DRY_RUN"
+
+          PAYLOAD=$(jq -n \
+            --arg divisionId "$DIVISION_ID" \
+            --argjson maxAssets "$MAX_ASSETS" \
+            --argjson dryRun "$DRY_RUN" \
+            '{
+              maxAssets: $maxAssets,
+              mode: "full",
+              divisionId: $divisionId,
+              syncLastDays: 1,
+              fetchSort: "desc",
+              dryRun: $dryRun
+            }')
+
+          echo "Payload:"
+          echo "$PAYLOAD"
+
+          STATUS_CODE=$(aws lambda invoke \
+            --function-name "$INGEST_LAMBDA" \
+            --invocation-type Event \
+            --payload "$PAYLOAD" \
+            --cli-binary-format raw-in-base64-out \
+            --query 'StatusCode' \
+            --output text \
+            /dev/null)
+
+          echo "Lambda Status Code: $STATUS_CODE"
+
+          if [ "$STATUS_CODE" = "202" ]; then
+            echo "Grey Background migration started"
+          else
+            echo "Failed to start Grey Background migration"
+            exit 1
           fi
 
-          echo "Deployment completed successfully!"
+  # ============================================================
+  # JOB 3: White-background migrations (all other divisions)
+  # Only runs on manual dispatch with migration_type = wb | both,
+  # and only after the deploy job has succeeded. Runs in parallel
+  # with run-gb (both only depend on build-test-deploy).
+  # ============================================================
+  run-wb:
+    name: Run White Background Migrations
+    needs: build-test-deploy
+    if: |
+      github.event_name == 'workflow_dispatch' &&
+      (inputs.migration_type == 'wb' || inputs.migration_type == 'both')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Invoke Ingest Lambda - WB (all white-background divisions)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          DIVISIONS="45 46 65 89 231 232 233"
+          MAX_ASSETS="${{ inputs.max_assets }}"
+          DRY_RUN="${{ inputs.dry_run }}"
+
+          echo "=========================================="
+          echo "White Background Migration"
+          echo "=========================================="
+          echo "Lambda: $INGEST_LAMBDA"
+          echo "Divisions: $DIVISIONS"
+          echo "Max Assets: $MAX_ASSETS"
+          echo "Dry Run: $DRY_RUN"
+
+          for DIVISION_ID in $DIVISIONS; do
+            echo ""
+            echo "=========================================="
+            echo "Starting Division: $DIVISION_ID"
+            echo "=========================================="
+
+            PAYLOAD=$(jq -n \
+              --arg divisionId "$DIVISION_ID" \
+              --argjson maxAssets "$MAX_ASSETS" \
+              --argjson dryRun "$DRY_RUN" \
+              '{
+                maxAssets: $maxAssets,
+                mode: "full",
+                divisionId: $divisionId,
+                syncLastDays: 1,
+                fetchSort: "desc",
+                dryRun: $dryRun
+              }')
+
+            echo "Payload:"
+            echo "$PAYLOAD"
+
+            STATUS_CODE=$(aws lambda invoke \
+              --function-name "$INGEST_LAMBDA" \
+              --invocation-type Event \
+              --payload "$PAYLOAD" \
+              --cli-binary-format raw-in-base64-out \
+              --query 'StatusCode' \
+              --output text \
+              /dev/null)
+
+            echo "Lambda Status Code: $STATUS_CODE"
+
+            if [ "$STATUS_CODE" = "202" ]; then
+              echo "Division $DIVISION_ID migration started"
+            else
+              echo "Division $DIVISION_ID failed to start"
+              exit 1
+            fi
+          done
+
+          echo ""
+          echo "All White Background migrations started"
