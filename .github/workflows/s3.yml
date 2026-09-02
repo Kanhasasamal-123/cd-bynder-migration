@@ -34,7 +34,7 @@ on:
         default: "false"
 
       asset_id:
-        description: "[retry-failed only] Asset ID(s) to retry — comma-separated or one per line"
+        description: "[retry-failed only] Specific asset ID(s), comma-separated or one per line. Leave blank to retry ALL failed assets (up to max_assets)"
         required: false
         default: ""
 
@@ -419,6 +419,7 @@ jobs:
           set -euo pipefail
 
           ASSET_ID="${{ inputs.asset_id }}"
+          MAX_ASSETS="${{ inputs.max_assets }}"
           DRY_RUN="${{ inputs.dry_run }}"
           ONLY_FAILED="${{ inputs.only_failed }}"
           SYNC_INVOKE="${{ inputs.sync_invoke }}"
@@ -431,37 +432,48 @@ jobs:
           echo "Only Failed: $ONLY_FAILED"
           echo "Sync Invoke: $SYNC_INVOKE"
 
-          if [ -z "$ASSET_ID" ]; then
-            echo "Provide asset_id — one ID per line, comma-separated, or space-separated"
-            exit 1
-          fi
-
-          # Parse newline/comma/space separated IDs into a JSON array
-          ASSET_IDS_JSON=$(printf '%s' "$ASSET_ID" \
-            | tr ',;' '\n' \
-            | tr -s ' \t' '\n' \
-            | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
-            | grep -v '^$' \
-            | jq -R . | jq -s -c .)
-
-          ASSET_COUNT=$(echo "$ASSET_IDS_JSON" | jq 'length')
-          echo "Parsed asset count: $ASSET_COUNT"
-          echo "First IDs: $(echo "$ASSET_IDS_JSON" | jq -c '.[0:3]')"
-
-          if [ "$ASSET_COUNT" -eq 0 ]; then
-            echo "No asset IDs parsed from asset_id input"
-            exit 1
-          fi
-
           DRY_RUN_JSON=$([ "$DRY_RUN" = "true" ] && echo true || echo false)
           ONLY_FAILED_JSON=$([ "$ONLY_FAILED" = "false" ] && echo false || echo true)
 
-          PAYLOAD=$(jq -n \
-            --arg action "retry-failed-assets" \
-            --argjson assetIds "$ASSET_IDS_JSON" \
-            --argjson dryRun "$DRY_RUN_JSON" \
-            --argjson onlyFailed "$ONLY_FAILED_JSON" \
-            '{action: $action, assetIds: $assetIds, dryRun: $dryRun, onlyFailed: $onlyFailed}')
+          if [ -z "$ASSET_ID" ]; then
+            # Bulk mode: no asset_id given -> retry all FAILED records, capped at max_assets
+            echo "Mode: bulk (no asset_id given)"
+            echo "Max Assets: $MAX_ASSETS"
+
+            PAYLOAD=$(jq -n \
+              --arg action "retry-failed-assets" \
+              --argjson maxAssets "$MAX_ASSETS" \
+              --argjson dryRun "$DRY_RUN_JSON" \
+              --argjson onlyFailed "$ONLY_FAILED_JSON" \
+              '{action: $action, maxAssets: $maxAssets, dryRun: $dryRun, onlyFailed: $onlyFailed}')
+          else
+            # Specific mode: asset_id given -> retry only those IDs
+            echo "Mode: specific asset IDs"
+
+            # Parse newline/comma/space separated IDs into a JSON array
+            ASSET_IDS_JSON=$(printf '%s' "$ASSET_ID" \
+              | tr ',;' '\n' \
+              | tr -s ' \t' '\n' \
+              | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+              | grep -v '^$' \
+              | jq -R . | jq -s -c .)
+
+            ASSET_COUNT=$(echo "$ASSET_IDS_JSON" | jq 'length')
+            echo "Parsed asset count: $ASSET_COUNT"
+            echo "First IDs: $(echo "$ASSET_IDS_JSON" | jq -c '.[0:3]')"
+
+            if [ "$ASSET_COUNT" -eq 0 ]; then
+              echo "No asset IDs parsed from asset_id input"
+              exit 1
+            fi
+
+            PAYLOAD=$(jq -n \
+              --arg action "retry-failed-assets" \
+              --argjson assetIds "$ASSET_IDS_JSON" \
+              --argjson dryRun "$DRY_RUN_JSON" \
+              --argjson onlyFailed "$ONLY_FAILED_JSON" \
+              '{action: $action, assetIds: $assetIds, dryRun: $dryRun, onlyFailed: $onlyFailed}')
+          fi
 
           echo "Payload:"
           echo "$PAYLOAD"
