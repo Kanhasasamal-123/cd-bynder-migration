@@ -21,7 +21,7 @@ on:
 
       max_assets:
         description: "Maximum assets per division"
-        required: false
+        required: true
         default: "5000"
 
       dry_run:
@@ -34,17 +34,27 @@ on:
         default: "false"
 
       asset_id:
-        description: "[retry-failed only] Asset ID(s), comma-separated or one per line"
+        description: "[retry-failed only] Specific asset ID(s), comma-separated or one per line. Leave blank to retry ALL failed assets (up to max_assets)"
         required: false
         default: ""
 
       only_failed:
         description: "[retry-failed only] Only retry records currently in FAILED status"
-        required: "true"
+        required: true
+        type: choice
+        options:
+          - "true"
+          - "false"
+        default: "true"
 
       sync_invoke:
         description: "[retry-failed only] Invoke synchronously to see the result in the log"
-        required: "true"
+        required: true
+        type: choice
+        options:
+          - "true"
+          - "false"
+        default: "true"
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
