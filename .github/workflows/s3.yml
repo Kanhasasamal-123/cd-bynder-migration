@@ -16,8 +16,7 @@ on:
           - gb
           - wb
           - both
-          # RETRY FAILED ASSETS
-          - retry-failed-assets
+          - retry-failed
         default: none
 
       max_assets:
@@ -34,25 +33,28 @@ on:
           - "false"
         default: "false"
 
-      # RETRY FAILED ASSETS
-      asset_ids:
-        description: "Failed asset IDs to retry (one per line and/or comma-separated). Only used when migration_type = retry-failed-assets"
+      asset_id:
+        description: "[retry-failed only] Asset ID(s) to retry — comma-separated or one per line"
         required: false
-        type: string
+        default: ""
 
-      # RETRY FAILED ASSETS
       only_failed:
-        description: "Retry only assets whose DynamoDB status is FAILED"
-        required: false
-        type: boolean
-        default: true
+        description: "[retry-failed only] Only retry records currently in FAILED status"
+        required: true
+        type: choice
+        options:
+          - "true"
+          - "false"
+        default: "true"
 
-      # RETRY FAILED ASSETS
       sync_invoke:
-        description: "Wait for the Lambda response (RequestResponse) instead of firing async (Event)"
-        required: false
-        type: boolean
-        default: true
+        description: "[retry-failed only] Invoke synchronously to see the result in the log"
+        required: true
+        type: choice
+        options:
+          - "true"
+          - "false"
+        default: "true"
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
@@ -380,20 +382,27 @@ jobs:
           echo "All White Background migrations started"
 
   # ============================================================
-  # RETRY FAILED ASSETS
-  # Retries assets whose DynamoDB tracker status is FAILED by
-  # invoking the ingest Lambda with action=retry-failed-assets.
-  # Reference behavior ported from the old Bitbucket
-  # `retry-failed-assets` custom pipeline.
-  # Only runs on manual dispatch with migration_type = retry-failed-assets,
-  # and only after build-test-deploy has succeeded.
+  # Retry failed assets
+  # Flips DynamoDB tracker records for the given asset IDs from
+  # FAILED back to PENDING via the Ingest Lambda's
+  # "retry-failed-assets" action. The existing DynamoDB Stream +
+  # ProcessorEventSourceMapping (filtered on status: PENDING)
+  # picks the record back up automatically — this job never talks
+  # to CreativeDrive or S3 directly, it only asks the Ingest
+  # Lambda to reset status. Same asset-ID pattern as the old
+  # Bitbucket "retry-failed-assets" custom pipeline.
+  #
+  # NOTE: this assumes the Ingest Lambda handler already (or will
+  # soon) dispatch on action === "retry-failed-assets". Confirm
+  # this exists in the S3-based ingest handler before running —
+  # it is not something this workflow file can verify.
   # ============================================================
-  retry-failed-assets:
+  run-retry-failed-assets:
     name: Retry Failed Assets
     needs: build-test-deploy
     if: |
       github.event_name == 'workflow_dispatch' &&
-      inputs.migration_type == 'retry-failed-assets'
+      inputs.migration_type == 'retry-failed'
     runs-on: ubuntu-latest
 
     steps:
@@ -404,25 +413,15 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Verify ingest Lambda exists
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "Checking Lambda: $INGEST_LAMBDA"
-          aws lambda get-function \
-            --function-name "$INGEST_LAMBDA" \
-            --query 'Configuration.[FunctionName,LastModified,Runtime,Timeout]' \
-            --output table
-
       - name: Invoke Ingest Lambda - Retry Failed Assets
         shell: bash
-        env:
-          ASSET_IDS_RAW: ${{ inputs.asset_ids }}
-          DRY_RUN: ${{ inputs.dry_run }}
-          ONLY_FAILED: ${{ inputs.only_failed }}
-          SYNC_INVOKE: ${{ inputs.sync_invoke }}
         run: |
           set -euo pipefail
+
+          ASSET_ID="${{ inputs.asset_id }}"
+          DRY_RUN="${{ inputs.dry_run }}"
+          ONLY_FAILED="${{ inputs.only_failed }}"
+          SYNC_INVOKE="${{ inputs.sync_invoke }}"
 
           echo "=========================================="
           echo "Retry Failed Assets"
@@ -432,27 +431,30 @@ jobs:
           echo "Only Failed: $ONLY_FAILED"
           echo "Sync Invoke: $SYNC_INVOKE"
 
-          # Parse asset_ids: accepts one-per-line, comma-separated, and/or
-          # semicolon-separated input; trims whitespace and drops blanks.
-          ASSET_IDS_JSON=$(printf '%s' "$ASSET_IDS_RAW" \
-            | tr ',;' '\n' \
-            | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
-            | grep -v '^$' \
-            | jq -R . \
-            | jq -s -c .)
-
-          ASSET_COUNT=$(echo "$ASSET_IDS_JSON" | jq 'length')
-          echo "Parsed asset count: $ASSET_COUNT"
-
-          if [ "$ASSET_COUNT" -eq 0 ]; then
-            echo "::error::No asset IDs supplied. Provide asset_ids (one per line and/or comma-separated) when running with migration_type=retry-failed-assets."
+          if [ -z "$ASSET_ID" ]; then
+            echo "Provide asset_id — one ID per line, comma-separated, or space-separated"
             exit 1
           fi
 
+          # Parse newline/comma/space separated IDs into a JSON array
+          ASSET_IDS_JSON=$(printf '%s' "$ASSET_ID" \
+            | tr ',;' '\n' \
+            | tr -s ' \t' '\n' \
+            | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+            | grep -v '^$' \
+            | jq -R . | jq -s -c .)
+
+          ASSET_COUNT=$(echo "$ASSET_IDS_JSON" | jq 'length')
+          echo "Parsed asset count: $ASSET_COUNT"
           echo "First IDs: $(echo "$ASSET_IDS_JSON" | jq -c '.[0:3]')"
 
+          if [ "$ASSET_COUNT" -eq 0 ]; then
+            echo "No asset IDs parsed from asset_id input"
+            exit 1
+          fi
+
           DRY_RUN_JSON=$([ "$DRY_RUN" = "true" ] && echo true || echo false)
-          ONLY_FAILED_JSON=$([ "$ONLY_FAILED" = "true" ] && echo true || echo false)
+          ONLY_FAILED_JSON=$([ "$ONLY_FAILED" = "false" ] && echo false || echo true)
 
           PAYLOAD=$(jq -n \
             --arg action "retry-failed-assets" \
@@ -461,49 +463,32 @@ jobs:
             --argjson onlyFailed "$ONLY_FAILED_JSON" \
             '{action: $action, assetIds: $assetIds, dryRun: $dryRun, onlyFailed: $onlyFailed}')
 
-          echo "$PAYLOAD" > /tmp/retry-failed-payload.json
-
-          echo "Payload preview:"
-          jq -c '{action, assetCount: (.assetIds | length), dryRun, onlyFailed}' /tmp/retry-failed-payload.json
+          echo "Payload:"
+          echo "$PAYLOAD"
 
           INVOKE_TYPE=$([ "$SYNC_INVOKE" = "true" ] && echo RequestResponse || echo Event)
           echo "Invoking Lambda ($INVOKE_TYPE)..."
 
-          INVOKE_RESULT=$(aws lambda invoke \
+          aws lambda invoke \
             --function-name "$INGEST_LAMBDA" \
             --invocation-type "$INVOKE_TYPE" \
-            --payload file:///tmp/retry-failed-payload.json \
+            --payload "$PAYLOAD" \
             --cli-binary-format raw-in-base64-out \
-            /tmp/retry-failed-response.json)
-
-          echo "Invoke result: $INVOKE_RESULT"
-
-          FUNCTION_ERROR=$(echo "$INVOKE_RESULT" | jq -r '.FunctionError // empty')
-          if [ -n "$FUNCTION_ERROR" ]; then
-            echo "::error::Lambda invocation error: $FUNCTION_ERROR"
-            cat /tmp/retry-failed-response.json
-            exit 1
-          fi
+            response.json
 
           echo "Lambda response:"
-          cat /tmp/retry-failed-response.json
+          cat response.json
           echo ""
 
           if [ "$INVOKE_TYPE" = "Event" ]; then
-            STATUS_CODE=$(echo "$INVOKE_RESULT" | jq -r '.StatusCode')
-            if [ "$STATUS_CODE" = "202" ]; then
-              echo "Async invoke accepted — check CloudWatch log group: /aws/lambda/$INGEST_LAMBDA"
-            else
-              echo "::error::Lambda invocation failed with status code: $STATUS_CODE"
-              exit 1
-            fi
+            echo "Async invoke accepted — check CloudWatch log group: /aws/lambda/$INGEST_LAMBDA"
           else
-            STATUS_CODE=$(jq -r '.statusCode // empty' /tmp/retry-failed-response.json)
+            STATUS_CODE=$(jq -r '.statusCode // empty' response.json)
             if [ "$STATUS_CODE" = "200" ]; then
               echo "retry-failed-assets completed"
-              jq -r '.body // empty' /tmp/retry-failed-response.json | jq . 2>/dev/null || jq -r '.body // empty' /tmp/retry-failed-response.json
+              jq -r '.body // empty' response.json | jq . 2>/dev/null || jq -r '.body // empty' response.json
             else
-              echo "::error::Lambda returned statusCode: ${STATUS_CODE:-unknown}"
+              echo "Lambda returned statusCode: ${STATUS_CODE:-unknown}"
               exit 1
             fi
           fi
