@@ -34,8 +34,8 @@ on:
         default: "false"
 
       asset_id:
-        description: "[retry-failed only] Specific asset ID(s), comma-separated or one per line. Leave blank to retry ALL failed assets (up to max_assets)"
-        required: false
+        description: "[retry-failed only] Required. Specific asset ID(s), comma-separated or one per line."
+        required: true
         default: ""
 
       only_failed:
@@ -380,22 +380,30 @@ jobs:
 
           echo ""
           echo "All White Background migrations started"
-
   # ============================================================
   # Retry failed assets
-  # Flips DynamoDB tracker records for the given asset IDs from
-  # FAILED back to PENDING via the Ingest Lambda's
-  # "retry-failed-assets" action. The existing DynamoDB Stream +
-  # ProcessorEventSourceMapping (filtered on status: PENDING)
-  # picks the record back up automatically — this job never talks
-  # to CreativeDrive or S3 directly, it only asks the Ingest
-  # Lambda to reset status. Same asset-ID pattern as the old
-  # Bitbucket "retry-failed-assets" custom pipeline.
+  # Same behavior as the old Bitbucket "retry-failed-assets"
+  # custom pipeline.
   #
-  # NOTE: this assumes the Ingest Lambda handler already (or will
-  # soon) dispatch on action === "retry-failed-assets". Confirm
-  # this exists in the S3-based ingest handler before running —
-  # it is not something this workflow file can verify.
+  # Requires one or more asset IDs.
+  # Asset IDs can be:
+  #   - comma-separated
+  #   - semicolon-separated
+  #   - space-separated
+  #   - one per line
+  #
+  # The Ingest Lambda receives:
+  # {
+  #   "action": "retry-failed-assets",
+  #   "assetIds": [...],
+  #   "dryRun": false,
+  #   "onlyFailed": true
+  # }
+  #
+  # The Lambda is responsible for changing the DynamoDB
+  # tracker status from FAILED back to PENDING.
+  # DynamoDB Stream then picks up the PENDING records and
+  # the processor handles the migration.
   # ============================================================
   run-retry-failed-assets:
     name: Retry Failed Assets
@@ -413,13 +421,12 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Invoke Ingest Lambda - Retry Failed Assets
+      - name: Retry Failed Assets
         shell: bash
         run: |
           set -euo pipefail
 
           ASSET_ID="${{ inputs.asset_id }}"
-          MAX_ASSETS="${{ inputs.max_assets }}"
           DRY_RUN="${{ inputs.dry_run }}"
           ONLY_FAILED="${{ inputs.only_failed }}"
           SYNC_INVOKE="${{ inputs.sync_invoke }}"
@@ -432,53 +439,76 @@ jobs:
           echo "Only Failed: $ONLY_FAILED"
           echo "Sync Invoke: $SYNC_INVOKE"
 
-          DRY_RUN_JSON=$([ "$DRY_RUN" = "true" ] && echo true || echo false)
-          ONLY_FAILED_JSON=$([ "$ONLY_FAILED" = "false" ] && echo false || echo true)
-
+          # ----------------------------------------------------
+          # Asset ID is REQUIRED
+          # Same behavior as old Bitbucket pipeline.
+          # ----------------------------------------------------
           if [ -z "$ASSET_ID" ]; then
-            # Bulk mode: no asset_id given -> retry all FAILED records, capped at max_assets
-            echo "Mode: bulk (no asset_id given)"
-            echo "Max Assets: $MAX_ASSETS"
-
-            PAYLOAD=$(jq -n \
-              --arg action "retry-failed-assets" \
-              --argjson maxAssets "$MAX_ASSETS" \
-              --argjson dryRun "$DRY_RUN_JSON" \
-              --argjson onlyFailed "$ONLY_FAILED_JSON" \
-              '{action: $action, maxAssets: $maxAssets, dryRun: $dryRun, onlyFailed: $onlyFailed}')
-          else
-            # Specific mode: asset_id given -> retry only those IDs
-            echo "Mode: specific asset IDs"
-
-            # Parse newline/comma/space separated IDs into a JSON array
-            ASSET_IDS_JSON=$(printf '%s' "$ASSET_ID" \
-              | tr ',;' '\n' \
-              | tr -s ' \t' '\n' \
-              | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
-              | grep -v '^$' \
-              | jq -R . | jq -s -c .)
-
-            ASSET_COUNT=$(echo "$ASSET_IDS_JSON" | jq 'length')
-            echo "Parsed asset count: $ASSET_COUNT"
-            echo "First IDs: $(echo "$ASSET_IDS_JSON" | jq -c '.[0:3]')"
-
-            if [ "$ASSET_COUNT" -eq 0 ]; then
-              echo "No asset IDs parsed from asset_id input"
-              exit 1
-            fi
-
-            PAYLOAD=$(jq -n \
-              --arg action "retry-failed-assets" \
-              --argjson assetIds "$ASSET_IDS_JSON" \
-              --argjson dryRun "$DRY_RUN_JSON" \
-              --argjson onlyFailed "$ONLY_FAILED_JSON" \
-              '{action: $action, assetIds: $assetIds, dryRun: $dryRun, onlyFailed: $onlyFailed}')
+            echo "❌ ASSET_ID is required."
+            echo "Provide one or more asset IDs."
+            exit 1
           fi
+
+          # ----------------------------------------------------
+          # Convert comma/semicolon/space/newline separated
+          # asset IDs into a JSON array.
+          # ----------------------------------------------------
+          ASSET_IDS_JSON=$(printf '%s' "$ASSET_ID" \
+            | tr ',;' '\n' \
+            | tr -s ' \t' '\n' \
+            | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+            | grep -v '^$' \
+            | jq -R . \
+            | jq -s -c .)
+
+          ASSET_COUNT=$(echo "$ASSET_IDS_JSON" | jq 'length')
+
+          echo "Parsed asset count: $ASSET_COUNT"
+          echo "First IDs: $(echo "$ASSET_IDS_JSON" | jq -c '.[0:3]')"
+
+          if [ "$ASSET_COUNT" -eq 0 ]; then
+            echo "❌ No asset IDs parsed."
+            exit 1
+          fi
+
+          # ----------------------------------------------------
+          # Convert GitHub string inputs to JSON booleans.
+          # ----------------------------------------------------
+          DRY_RUN_JSON=$(
+            [ "$DRY_RUN" = "true" ] && echo true || echo false
+          )
+
+          ONLY_FAILED_JSON=$(
+            [ "$ONLY_FAILED" = "false" ] && echo false || echo true
+          )
+
+          # ----------------------------------------------------
+          # Build exactly the same retry payload as Bitbucket.
+          # ----------------------------------------------------
+          PAYLOAD=$(jq -n \
+            --arg action "retry-failed-assets" \
+            --argjson assetIds "$ASSET_IDS_JSON" \
+            --argjson dryRun "$DRY_RUN_JSON" \
+            --argjson onlyFailed "$ONLY_FAILED_JSON" \
+            '{
+              action: $action,
+              assetIds: $assetIds,
+              dryRun: $dryRun,
+              onlyFailed: $onlyFailed
+            }')
 
           echo "Payload:"
           echo "$PAYLOAD"
 
-          INVOKE_TYPE=$([ "$SYNC_INVOKE" = "true" ] && echo RequestResponse || echo Event)
+          # ----------------------------------------------------
+          # Invoke Lambda synchronously or asynchronously.
+          # ----------------------------------------------------
+          INVOKE_TYPE=$(
+            [ "$SYNC_INVOKE" = "true" ] \
+            && echo RequestResponse \
+            || echo Event
+          )
+
           echo "Invoking Lambda ($INVOKE_TYPE)..."
 
           aws lambda invoke \
@@ -492,15 +522,31 @@ jobs:
           cat response.json
           echo ""
 
+          # ----------------------------------------------------
+          # Validate Lambda result.
+          # ----------------------------------------------------
           if [ "$INVOKE_TYPE" = "Event" ]; then
-            echo "Async invoke accepted — check CloudWatch log group: /aws/lambda/$INGEST_LAMBDA"
+
+            echo "✅ Async invoke accepted."
+            echo "Check CloudWatch log group:"
+            echo "/aws/lambda/$INGEST_LAMBDA"
+
           else
+
             STATUS_CODE=$(jq -r '.statusCode // empty' response.json)
+
             if [ "$STATUS_CODE" = "200" ]; then
-              echo "retry-failed-assets completed"
-              jq -r '.body // empty' response.json | jq . 2>/dev/null || jq -r '.body // empty' response.json
+
+              echo "✅ retry-failed-assets completed"
+
+              jq -r '.body // empty' response.json \
+                | jq . 2>/dev/null \
+                || jq -r '.body // empty' response.json
+
             else
-              echo "Lambda returned statusCode: ${STATUS_CODE:-unknown}"
+
+              echo "❌ Lambda returned statusCode: ${STATUS_CODE:-unknown}"
               exit 1
+
             fi
           fi
