@@ -16,6 +16,7 @@ on:
           - gb
           - wb
           - both
+          - retry-failed
         default: none
 
       max_assets:
@@ -31,6 +32,29 @@ on:
           - "true"
           - "false"
         default: "false"
+
+      asset_id:
+        description: "[retry-failed only] Specific asset ID(s), comma-separated or one per line. Leave blank to retry ALL failed assets (up to max_assets)"
+        required: false
+        default: ""
+
+      only_failed:
+        description: "[retry-failed only] Only retry records currently in FAILED status"
+        required: true
+        type: choice
+        options:
+          - "true"
+          - "false"
+        default: "true"
+
+      sync_invoke:
+        description: "[retry-failed only] Invoke synchronously to see the result in the log"
+        required: true
+        type: choice
+        options:
+          - "true"
+          - "false"
+        default: "true"
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
@@ -356,3 +380,127 @@ jobs:
 
           echo ""
           echo "All White Background migrations started"
+
+  # ============================================================
+  # Retry failed assets
+  # Flips DynamoDB tracker records for the given asset IDs from
+  # FAILED back to PENDING via the Ingest Lambda's
+  # "retry-failed-assets" action. The existing DynamoDB Stream +
+  # ProcessorEventSourceMapping (filtered on status: PENDING)
+  # picks the record back up automatically — this job never talks
+  # to CreativeDrive or S3 directly, it only asks the Ingest
+  # Lambda to reset status. Same asset-ID pattern as the old
+  # Bitbucket "retry-failed-assets" custom pipeline.
+  #
+  # NOTE: this assumes the Ingest Lambda handler already (or will
+  # soon) dispatch on action === "retry-failed-assets". Confirm
+  # this exists in the S3-based ingest handler before running —
+  # it is not something this workflow file can verify.
+  # ============================================================
+  run-retry-failed-assets:
+    name: Retry Failed Assets
+    needs: build-test-deploy
+    if: |
+      github.event_name == 'workflow_dispatch' &&
+      inputs.migration_type == 'retry-failed'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Invoke Ingest Lambda - Retry Failed Assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ASSET_ID="${{ inputs.asset_id }}"
+          MAX_ASSETS="${{ inputs.max_assets }}"
+          DRY_RUN="${{ inputs.dry_run }}"
+          ONLY_FAILED="${{ inputs.only_failed }}"
+          SYNC_INVOKE="${{ inputs.sync_invoke }}"
+
+          echo "=========================================="
+          echo "Retry Failed Assets"
+          echo "=========================================="
+          echo "Lambda: $INGEST_LAMBDA"
+          echo "Dry Run: $DRY_RUN"
+          echo "Only Failed: $ONLY_FAILED"
+          echo "Sync Invoke: $SYNC_INVOKE"
+
+          DRY_RUN_JSON=$([ "$DRY_RUN" = "true" ] && echo true || echo false)
+          ONLY_FAILED_JSON=$([ "$ONLY_FAILED" = "false" ] && echo false || echo true)
+
+          if [ -z "$ASSET_ID" ]; then
+            # Bulk mode: no asset_id given -> retry all FAILED records, capped at max_assets
+            echo "Mode: bulk (no asset_id given)"
+            echo "Max Assets: $MAX_ASSETS"
+
+            PAYLOAD=$(jq -n \
+              --arg action "retry-failed-assets" \
+              --argjson maxAssets "$MAX_ASSETS" \
+              --argjson dryRun "$DRY_RUN_JSON" \
+              --argjson onlyFailed "$ONLY_FAILED_JSON" \
+              '{action: $action, maxAssets: $maxAssets, dryRun: $dryRun, onlyFailed: $onlyFailed}')
+          else
+            # Specific mode: asset_id given -> retry only those IDs
+            echo "Mode: specific asset IDs"
+
+            # Parse newline/comma/space separated IDs into a JSON array
+            ASSET_IDS_JSON=$(printf '%s' "$ASSET_ID" \
+              | tr ',;' '\n' \
+              | tr -s ' \t' '\n' \
+              | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+              | grep -v '^$' \
+              | jq -R . | jq -s -c .)
+
+            ASSET_COUNT=$(echo "$ASSET_IDS_JSON" | jq 'length')
+            echo "Parsed asset count: $ASSET_COUNT"
+            echo "First IDs: $(echo "$ASSET_IDS_JSON" | jq -c '.[0:3]')"
+
+            if [ "$ASSET_COUNT" -eq 0 ]; then
+              echo "No asset IDs parsed from asset_id input"
+              exit 1
+            fi
+
+            PAYLOAD=$(jq -n \
+              --arg action "retry-failed-assets" \
+              --argjson assetIds "$ASSET_IDS_JSON" \
+              --argjson dryRun "$DRY_RUN_JSON" \
+              --argjson onlyFailed "$ONLY_FAILED_JSON" \
+              '{action: $action, assetIds: $assetIds, dryRun: $dryRun, onlyFailed: $onlyFailed}')
+          fi
+
+          echo "Payload:"
+          echo "$PAYLOAD"
+
+          INVOKE_TYPE=$([ "$SYNC_INVOKE" = "true" ] && echo RequestResponse || echo Event)
+          echo "Invoking Lambda ($INVOKE_TYPE)..."
+
+          aws lambda invoke \
+            --function-name "$INGEST_LAMBDA" \
+            --invocation-type "$INVOKE_TYPE" \
+            --payload "$PAYLOAD" \
+            --cli-binary-format raw-in-base64-out \
+            response.json
+
+          echo "Lambda response:"
+          cat response.json
+          echo ""
+
+          if [ "$INVOKE_TYPE" = "Event" ]; then
+            echo "Async invoke accepted — check CloudWatch log group: /aws/lambda/$INGEST_LAMBDA"
+          else
+            STATUS_CODE=$(jq -r '.statusCode // empty' response.json)
+            if [ "$STATUS_CODE" = "200" ]; then
+              echo "retry-failed-assets completed"
+              jq -r '.body // empty' response.json | jq . 2>/dev/null || jq -r '.body // empty' response.json
+            else
+              echo "Lambda returned statusCode: ${STATUS_CODE:-unknown}"
+              exit 1
+            fi
+          fi
