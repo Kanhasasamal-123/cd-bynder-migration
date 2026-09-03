@@ -24,6 +24,11 @@ on:
         required: true
         default: "5000"
 
+      fetch_offset:
+        description: "Starting offset for ingest"
+        required: true
+        default: "0"
+
       dry_run:
         description: "Dry run (no writes to CreativeDrive/S3/DynamoDB)"
         required: true
@@ -254,6 +259,7 @@ jobs:
 
           DIVISION_ID="76"
           MAX_ASSETS="${{ inputs.max_assets }}"
+          FETCH_OFFSET="${{ inputs.fetch_offset }}"
           DRY_RUN="${{ inputs.dry_run }}"
 
           echo "=========================================="
@@ -262,6 +268,7 @@ jobs:
           echo "Lambda: $INGEST_LAMBDA"
           echo "Division: $DIVISION_ID"
           echo "Max Assets: $MAX_ASSETS"
+          echo "Fetch Offset: $FETCH_OFFSET"
           echo "Dry Run: $DRY_RUN"
 
           PAYLOAD=$(jq -n \
@@ -272,8 +279,6 @@ jobs:
               maxAssets: $maxAssets,
               mode: "delta",
               divisionId: $divisionId,
-              syncLastDays: 3650,
-              fetchSort: "desc",
               dryRun: $dryRun
             }')
 
