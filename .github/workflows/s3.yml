@@ -237,12 +237,14 @@ jobs:
 
           TRACKER_TABLE="dam-migration-prod-tracker-prod"
 
-          FETCH_OFFSET=$(aws dynamodb scan \
+          COUNT_OUTPUT=$(aws dynamodb scan \
             --table-name "$TRACKER_TABLE" \
             --select COUNT \
             --query "Count" \
             --output text \
             --region "$AWS_REGION")
+
+          FETCH_OFFSET=$(printf '%s\n' "$COUNT_OUTPUT" | awk '{sum += $1} END {print sum+0}')
 
           echo "DynamoDB asset count: $FETCH_OFFSET"
 
