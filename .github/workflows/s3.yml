@@ -24,11 +24,6 @@ on:
         required: true
         default: "5000"
 
-      fetch_offset:
-        description: "Starting offset for ingest"
-        required: true
-        default: "0"
-
       dry_run:
         description: "Dry run (no writes to CreativeDrive/S3/DynamoDB)"
         required: true
@@ -43,23 +38,6 @@ on:
         required: false
         default: ""
 
-      # only_failed:
-      #   description: "[retry-failed only] Only retry records currently in FAILED status"
-      #   required: true
-      #   type: choice
-      #   options:
-      #     - "true"
-      #     - "false"
-      #   default: "true"
-
-      # sync_invoke:
-      #   description: "[retry-failed only] Invoke synchronously to see the result in the log"
-      #   required: true
-      #   type: choice
-      #   options:
-      #     - "true"
-      #     - "false"
-      #   default: "true"
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
@@ -252,6 +230,29 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Get DynamoDB asset count
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TRACKER_TABLE="dam-migration-prod-tracker-prod"
+
+          FETCH_OFFSET=$(aws dynamodb scan \
+            --table-name "$TRACKER_TABLE" \
+            --select COUNT \
+            --query "Count" \
+            --output text \
+            --region "$AWS_REGION")
+
+          echo "DynamoDB asset count: $FETCH_OFFSET"
+
+          if ! [[ "$FETCH_OFFSET" =~ ^[0-9]+$ ]]; then
+            echo "❌ Invalid DynamoDB count: $FETCH_OFFSET"
+            exit 1
+          fi
+
+          echo "FETCH_OFFSET=$FETCH_OFFSET" >> "$GITHUB_ENV"
+
       - name: Invoke Ingest Lambda - GB (division 76)
         shell: bash
         run: |
@@ -259,7 +260,6 @@ jobs:
 
           DIVISION_ID="76"
           MAX_ASSETS="${{ inputs.max_assets }}"
-          FETCH_OFFSET="${{ inputs.fetch_offset }}"
           DRY_RUN="${{ inputs.dry_run }}"
 
           echo "=========================================="
@@ -274,11 +274,13 @@ jobs:
           PAYLOAD=$(jq -n \
             --arg divisionId "$DIVISION_ID" \
             --argjson maxAssets "$MAX_ASSETS" \
+            --argjson fetchOffset "$FETCH_OFFSET" \
             --argjson dryRun "$DRY_RUN" \
             '{
               maxAssets: $maxAssets,
               mode: "delta",
               divisionId: $divisionId,
+              fetchOffset: $fetchOffset,
               dryRun: $dryRun
             }')
 
