@@ -479,7 +479,7 @@ jobs:
           )
 
           ONLY_FAILED_JSON=$(
-            [ "$ONLY_FAILED" = "true" ] && echo false || echo true
+            [ "$ONLY_FAILED" = "true" ] && echo true || echo false
           )
 
           # ----------------------------------------------------
