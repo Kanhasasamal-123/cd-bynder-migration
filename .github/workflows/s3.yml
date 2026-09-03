@@ -38,23 +38,23 @@ on:
         required: false
         default: ""
 
-      only_failed:
-        description: "[retry-failed only] Only retry records currently in FAILED status"
-        required: true
-        type: choice
-        options:
-          - "true"
-          - "false"
-        default: "true"
+      # only_failed:
+      #   description: "[retry-failed only] Only retry records currently in FAILED status"
+      #   required: true
+      #   type: choice
+      #   options:
+      #     - "true"
+      #     - "false"
+      #   default: "true"
 
-      sync_invoke:
-        description: "[retry-failed only] Invoke synchronously to see the result in the log"
-        required: true
-        type: choice
-        options:
-          - "true"
-          - "false"
-        default: "true"
+      # sync_invoke:
+      #   description: "[retry-failed only] Invoke synchronously to see the result in the log"
+      #   required: true
+      #   type: choice
+      #   options:
+      #     - "true"
+      #     - "false"
+      #   default: "true"
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
@@ -428,8 +428,8 @@ jobs:
 
           ASSET_ID="${{ inputs.asset_id }}"
           DRY_RUN="${{ inputs.dry_run }}"
-          ONLY_FAILED="${{ inputs.only_failed }}"
-          SYNC_INVOKE="${{ inputs.sync_invoke }}"
+          ONLY_FAILED="true"
+          SYNC_INVOKE="true"
 
           echo "=========================================="
           echo "Retry Failed Assets"
@@ -479,11 +479,11 @@ jobs:
           )
 
           ONLY_FAILED_JSON=$(
-            [ "$ONLY_FAILED" = "false" ] && echo false || echo true
+            [ "$ONLY_FAILED" = "true" ] && echo false || echo true
           )
 
           # ----------------------------------------------------
-          # Build exactly the same retry payload as Bitbucket.
+          # Build the retry payload.
           # ----------------------------------------------------
           PAYLOAD=$(jq -n \
             --arg action "retry-failed-assets" \
@@ -501,7 +501,7 @@ jobs:
           echo "$PAYLOAD"
 
           # ----------------------------------------------------
-          # Invoke Lambda synchronously or asynchronously.
+          # Invoke Lambda synchronously.
           # ----------------------------------------------------
           INVOKE_TYPE=$(
             [ "$SYNC_INVOKE" = "true" ] \
