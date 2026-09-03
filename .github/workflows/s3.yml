@@ -270,7 +270,7 @@ jobs:
             --argjson dryRun "$DRY_RUN" \
             '{
               maxAssets: $maxAssets,
-              mode: "full",
+              mode: "delta",
               divisionId: $divisionId,
               syncLastDays: 3650,
               fetchSort: "desc",
